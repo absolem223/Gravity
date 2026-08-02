@@ -1,0 +1,28 @@
+# Godot-specific ignores
+.godot/
+*.translation
+*.imported
+
+# OS & Editor generated files
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+*.swp
+*.log
+.vs/
+.vscode/
+.idea/
+
+# Temp build outputs & exports
+export_presets.cfg
+builds/
+dist/
+
+# Scratch & AI Agent temp artifacts
+scratch/
+tmp/
+*.log
+
+# Keep empty directories
+!.gitkeep
