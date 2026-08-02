@@ -1,57 +1,64 @@
-# SPEC VALIDATION: DESIGN VALIDATION — AUDITORÍA DE DECISIONES Y PILARES
+# SPEC VALIDATION: DESIGN VALIDATION — AUDITORÍA DE GENERACIONES Y PILARES
 
-- **Estado**: Actualizado / Revisión 2.0 (Fase 0.5 — Validación y Profundización)
+- **Estado**: Actualizado / Revisión 3.0 (Fase 0.5 — Game Architecture)
 - **Ubicación**: `docs/specs/validation/design_validation.md`
 
 ---
 
-## 🎯 Objetivo de la Auditoría
+## 🎯 Auditoría del Sistema de Generaciones Tecnológicas
 
-Mantener el control absoluto de la visión arquitectónica de **PROJECT GRAVITY**, clasificando las decisiones en **Confirmadas (Inmutables)** y **Abiertas (En Profundización)**.
+El **Sistema de Generaciones Tecnológicas** (`technology_generation_system.md`) ha sido auditado de forma estricta contra los 5 Pilares de Diseño de GRAVITY.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. LA INFORMACIÓN ES EL RECURSO MÁS VALIOSO                 │
+│    La elección de Doctrina en Gen 2 depende de la lectura   │
+│    de la información enemiga.                               │
+├─────────────────────────────────────────────────────────────┤
+│ 2. EL JUGADOR NUNCA COMBATE SOLO                            │
+│    Las Gen 2 y 3 potencian la Tríada Operador-Exo-Dron y la │
+│    interconexión con la escuadra.                           │
+├─────────────────────────────────────────────────────────────┤
+│ 3. EL OBJETIVO ES CONTROLAR EL NÚCLEO IA                    │
+│    Evolucionar a Gen 2/3 en los Centros Tecnológicos es el  │
+│    medio para dominar el perímetro del Núcleo IA.           │
+├─────────────────────────────────────────────────────────────┤
+│ 4. EL TERRENO DECIDE LA BATALLA                             │
+│    La progresión exige controlar físicamente los Centros de │
+│    Integración Tecnológica en la geometría del mapa.        │
+├─────────────────────────────────────────────────────────────┤
+│ 5. LA COOPERACIÓN SUPERA AL HÉROE INDIVIDUAL                │
+│    Los Efectos de Red de Gen 3 benefician a toda la escuadra│
+│    y exigen sinergia dobles entre roles.                    │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## 🔒 DECISIONES CONFIRMADAS (Inmutables)
 
-Las siguientes decisiones forman parte de la identidad fundamental de GRAVITY y no pueden ser alteradas sin un RFC aprobado con justificación extrema:
-
 1. **La Información como Recurso Principal**:
-   - Disparar o avanzar sin información previa de niebla de guerra es un error táctico letal. El Tiempo para Matar (TTK) frontal sin información es elevado.
+   - Disparar sin información es letal. El TTK frontal sin datos es elevado.
 2. **El Dron como Extensión Permanente del Operador**:
-   - El jugador es la Tríada Táctica: *Operador Humano + Exoesqueleto + Dron Permanente*.
-   - El Dron no es una habilidad con cooldown, ni una mascota, ni un gadget descartable.
-3. **Objetivo Basado en Control Tecnológico del Núcleo IA**:
-   - El objetivo es una operación tecnológica continuada por control territorial en el perímetro del Núcleo, NO un "plantar bomba" ni un *Team Deathmatch*.
-4. **La Cooperación es Superior al Héroe Individual**:
-   - Cero mecánicas de "Press Button to Win" o "Lone Wolf Carry". Ningún operador es autosuficiente.
+   - Tríada Táctica: *Operador + Exoesqueleto + Dron Permanente*.
+3. **Generaciones Tecnológicas Permanentes**:
+   - La progresión es irreversible en la partida (Gen 1 ➔ Gen 2 ➔ Gen 3). No se pierden por morir.
+4. **Infraestructura Física para Evolucionar**:
+   - El avance a Gen 2 y 3 requiere acceso y canalización física en Centros de Integración Tecnológica en el mapa.
+5. **Separación de Recursos**:
+   - *Recursos de Mantenimiento* (reparar drones destruidos) vs *Recursos de Evolución* (subir de Generación).
+6. **Objetivo Basado en Operación Tecnológica del Núcleo IA**:
+   - Control del perímetro por presencia de red, no un "plantar bomba".
+7. **La Cooperación es Superior al Héroe Individual**:
+   - Efectos de Red en Gen 3 potencian a la escuadra completa.
 
 ---
 
 ## 🔓 DECISIONES ABIERTAS (En Proceso de Profundización)
 
-Las siguientes áreas continúan abiertas para experimentación y ajuste durante la Fase 0.5 y prototipado en `sandbox/`:
-
-1. **Economía Exacta de Piezas y Componentes**:
-   - Ratio exacto de caída de piezas entre nodos del mapa vs drones destruidos (documentado en `drone_resource_economy.md`).
-2. **Progresión de Drones en Partida**:
-   - Árbol de mejoras y variantes de drones elegibles durante la síntesis en puntos de reabastecimiento.
-3. **Variantes de Operadores y Especificación de Kits**:
-   - Definición final de la lista de operadores de lanzamiento bajo las 5 preguntas obligatorias de `operator_design_rules.md`.
-4. **Balance entre Autonomía y Control Directo del Dron**:
-   - Proporción de uso entre el Modo Escolta (Autónomo) y el Modo Piloto (Control Directo vulnerable).
-
----
-
-## 📊 Matriz de Auditoría por Sistema
-
-### 1. Sistema de Movimiento y Combate (`combat_system.md`)
-- **Pilar que Refuerza**: *Pilar 1 (Información)*, *Pilar 4 (Terreno)* y *Pilar 5 (Cooperación)*.
-- **Decisión Confirmada**: La supresión de fuego y la Niebla de Guerra bloquean la efectividad de tiradores mecánicos puros.
-
-### 2. Sistema de Drones y Economía (`drone_design_rules.md` & `drone_resource_economy.md`)
-- **Pilar que Refuerza**: *Pilar 1 (Información)* y *Pilar 4 (El terreno decide)*.
-- **Decisión Confirmada**: La pérdida del dron exige recolección física de piezas en el mapa (Scrap Zones) para su síntesis.
-
-### 3. Sistema del Núcleo IA (`objective_system.md`)
-- **Pilar que Refuerza**: *Pilar 3 (El objetivo es el Núcleo)*.
-- **Decisión Confirmada**: La transferencia exige presencia de red y control territorial en el perímetro.
+1. **Arboles Específicos de Módulos por Rama de Gen 2**:
+   - Opciones exactas de módulos por rama en `technology_generation_system.md`.
+2. **Tiempo Exacto de Canalización en Centros Tecnológicos**:
+   - Prototipado del tiempo de vulnerabilidad durante la síntesis en `sandbox/`.
+3. **Límite de Piezas de Mantenimiento por Jugador**:
+   - Prototipado del Cap de almacenamiento (actualmente estimado en 100 unidades).

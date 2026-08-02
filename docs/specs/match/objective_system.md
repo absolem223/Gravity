@@ -1,56 +1,34 @@
-# SPEC: OBJECTIVE SYSTEM — SISTEMA DEL NÚCLEO IA Y OPERACIÓN TECNOLÓGICA
+# SPEC: OBJECTIVE SYSTEM — SISTEMA DEL NÚCLEO IA Y CENTROS TECNOLÓGICOS
 
-- **Estado**: Actualizado / Revisión 2.0 (Fase 0.5 — Validación y Profundización)
+- **Estado**: Actualizado / Revisión 3.0 (Fase 0.5 — Game Architecture)
 - **Dominio**: Match & Objective
 - **Ubicación**: `docs/specs/match/objective_system.md`
 
 ---
 
-## 🎯 Filosofía del Objetivo: Operación Tecnológica, No "Plantar Bomba"
+## 🎯 El Ecosistema de Objetivos del Mapa
 
-En los shooters tradicionales, el objetivo se reduce a un cliché: "llegar al sitio A/B, presionar la tecla E durante 4 segundos para plantar una bomba y esperar a que explote".
+En GRAVITY, la partida no es una trayectoria recta hacia un único punto. El mapa contiene un **Ecosistema de Objetivos Interconectados**:
 
-**En GRAVITY, el hackeo del Núcleo IA es una Operación Tecnológica Continuada y Reactiva**:
-
-1. **No es un temporizador estático**: El Núcleo no es una bomba con mecha de 45 segundos. Es una IA viva que requiere un **enlace de ancho de banda constante** con la escuadra atacante.
-2. **No requiere mantenerse inmóvil apretando un botón**: Una vez iniciado el protocolo de enlace mediante el Dron o la terminal del operador, el hackeo se sostiene por **Presencia de Red en el Perímetro**. El operador puede moverse, disparar y cubrirse dentro de la zona de enlace.
-3. **Integración Total de Drones**: El Dron puede actuar como la antena repetidora del enlace. Si el operador está fuera de la línea visual directa del Núcleo, pero su Dron está anclado en el techo de la sala, la transferencia continúa.
-
----
-
-## 🔄 Las 4 Fases de la Operación Tecnológica
+1. **El Objetivo Primario (Núcleo IA)**: Otorga la condición de victoria mediante la Operación Tecnológica de descarga y control de perímetro.
+2. **Los Objetivos Secundarios (Centros de Integración Tecnológica)**: Otorgan el avance a **Generaciones 2 y 3**, proporcionando las capacidades tácticas necesarias para ganar la batalla del Núcleo.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 1. TRIANGULACIÓN & MAPEO (Información)                      │
-│    - Descubrir la firma del Núcleo y limpiar niebla de la sala│
-└──────────────┬──────────────────────────────────────────────┘
-               │
-               ▼
+│             CENTROS DE INTEGRACIÓN TECNOLÓGICA              │
+│       (Evolución a Gen 2 y Gen 3 / Efectos de Red)          │
+└──────────────┬──────────────────────────────┬───────────────┘
+               │ Potencia capacidades         │ Aumenta ancho de banda
+               ▼                              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 2. APERTURA DE CORTAFUEGOS (Hackeo Inicial)                │
-│    - Romper el protocolo de seguridad inicial (Dron o Op)   │
-└──────────────┬──────────────────────────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 3. PERÍMETRO DE TRANSFERENCIA (Control Territorial)         │
-│    - Descarga continua de datos por presencia de escuadra.  │
-│    - Interrupción por presencia enemiga en la zona.        │
-└──────────────┬──────────────────────────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 4. SOBRECARGA & CONSOLIDACIÓN                               │
-│    - Estabilización del Núcleo bajo control del equipo.     │
+│                     EL NÚCLEO IA (SSOT)                     │
+│       (Operación Tecnológica de Descarga y Perímetro)       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🛡️ ¿Qué Determina el Éxito de la Operación?
+## 🔄 Dinámica de Dominio Territorial Dual
 
-- **La Información**: Conocer por qué conducto o puerta intentará entrar la escuadra defensora a interrumpir el enlace.
-- **La Posición**: Ubicar a los operadores en ángulos cruzados para cubrir la zona de enlace sin apiñarse.
-- **Los Drones**: Utilizar drones de barrera electromagnética para bloquear las miras de los defensores mientras la descarga alcanza el 100%.
-- **El Control Territorial**: Expulsar físicamente a los defensores fuera de la zona del perímetro para mantener el avance de la barra de transferencia.
+- **Fase Inicial / Media**: Las escuadras luchan por el control de los Centros de Integración Tecnológica neutros para evolucionar sus operadores y drones a Gen 2 antes de la primera incursión al Núcleo.
+- **Fase Avanzada**: Una escuadra que logra alcanzar Gen 3 mediante la inversión de recursos consolidados adquiere *Efectos de Red* (compartición de radar, overclocking de escuadra) que le otorgan una ventaja crítica para sostener el Perímetro del Núcleo IA en el clímax de la partida.

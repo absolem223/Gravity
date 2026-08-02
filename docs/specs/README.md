@@ -8,11 +8,17 @@ Las SPECs son la Fuente Única de Verdad (SSOT) funcional del juego. Ningún mó
 
 ---
 
+## 📈 Progresión Tecnológica (`docs/specs/progression/`)
+
+- [technology_generation_system.md](file:///E:/GRAVITY/docs/specs/progression/technology_generation_system.md): Sistema de Generaciones Tecnológicas (Gen 1 ➔ Gen 2 ➔ Gen 3), Centros de Integración, Recursos de Evolución vs Mantenimiento y Efectos de Red.
+
+---
+
 ## 🔍 Validaciones y Profundización de Diseño (`docs/specs/validation/`)
 
 - [design_validation.md](file:///E:/GRAVITY/docs/specs/validation/design_validation.md): Auditoría de decisiones confirmadas vs abiertas y pilares.
-- [drone_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/drone_design_rules.md): Reglas del sistema de drones (Tríada Táctica, extensión permanente y recuperación por piezas).
-- [drone_resource_economy.md](file:///E:/GRAVITY/docs/specs/validation/drone_resource_economy.md): Economía de piezas, recolección de chatarra y prevención de snowball.
+- [drone_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/drone_design_rules.md): Reglas del sistema de drones (Tríada Táctica, extensión permanente, recuperación por piezas y evolución por Generaciones).
+- [drone_resource_economy.md](file:///E:/GRAVITY/docs/specs/validation/drone_resource_economy.md): Economía de piezas, separación de recursos de evolución vs mantenimiento y anti-snowball.
 - [player_experience.md](file:///E:/GRAVITY/docs/specs/validation/player_experience.md): Definición de la experiencia emocional, UX y GRAVITY vs shooters tradicionales.
 - [match_flow_spec.md](file:///E:/GRAVITY/docs/specs/validation/match_flow_spec.md): Flujo completo de partida, mecanismos anti-camping y anti-snowball.
 - [operator_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/operator_design_rules.md): Reglas obligatorias para diseñar operadores futuros (Cuestionario de 5 preguntas).
@@ -36,7 +42,7 @@ Las SPECs son la Fuente Única de Verdad (SSOT) funcional del juego. Ningún mó
 - `player/movement.md`: Locomoción, físicas, inercia y colisiones.
 - `player/exoskeleton.md`: Exoesqueletos, atributos y habilidades.
 - `player/operators_system.md`: Trinomio Operador + Exoesqueleto + Dron.
-- `player/team_roles.md`: 4 Funciones tácticas dinámicas de la escuadra.
+- `player/team_roles.md`: Roles tácticos, Generaciones y Efectos de Red.
 
 ### ⚔️ 3. Combat
 - `combat/combat_system.md`: Balística, hitscan, supresión y ecuación de 5 variables.
@@ -45,22 +51,16 @@ Las SPECs son la Fuente Única de Verdad (SSOT) funcional del juego. Ningún mó
 - `drones/drone.md`: IA de asistencia, órdenes, batería y vinculación.
 
 ### 🗺️ 5. World
-- `world/map_design_guidelines.md`: Capas de movilidad, conductos de drones y líneas de visión.
+- `world/map_design_guidelines.md`: Capas de movilidad, conductos de drones y Centros de Integración Tecnológica.
 - `world/vision_cone.md`: Mecánica de cono de visión y Línea de Visión (LoS).
 - `world/hack.md`: Hackeo de terminales, puertas y dispositivos.
 
 ### 🏆 6. Match
-- `match/objective_system.md`: Fases de captura del Núcleo IA y control territorial (Operación Tecnológica).
+- `match/objective_system.md`: Fases de captura del Núcleo IA, Centros Tecnológicos y control territorial.
 - `match/matchmaking.md`: Lobbies, salas autoritativas y sesiones.
 
-### 📈 7. Progression
-- `progression/progression.md`: Meta-progresión, recompensas y desbloqueables.
-
-### 🌐 8. Network
-- `network/network_relevance.md`: Interest Management, filtros de replicación y relevancia de red.
-
-### 🖥️ 9. UI
+### 🖥️ 7. UI
 - `ui/ui.md`: Arquitectura de UI, HUD, menús y reactividad de estado.
 
-### 📊 10. Content
+### 📊 8. Content
 - `content/content_schema.md`: Tablas de datos, esquemas de balance y formato de recursos.
