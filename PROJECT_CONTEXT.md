@@ -4,7 +4,7 @@
 
 **PROJECT GRAVITY** es un proyecto de desarrollo multiplayer a largo plazo.
 
-Este documento establece el marco conceptual del proyecto, definiendo sus antecedentes, dominio de problema y contexto tecnológico, **sin fijar prematuramente mecánicas de juego ni contenido artístico específico**.
+Este documento establece el marco conceptual del proyecto, definiendo sus antecedentes, dominio de problema y contexto tecnológico.
 
 ---
 
@@ -23,6 +23,7 @@ GRAVITY responde a estos desafíos mediante:
 - **Separación tajante de responsabilidades**: La lógica de simulación pura es 100% independiente del renderizado y el motor.
 - **Enfoque Data-Driven**: Los parámetros de entidades no se hardcodean en scripts.
 - **Workspace AI-Native**: Documentación hiper-estructurada como interfaz para modelos de lenguaje y agentes autónomos.
+- **Diseño Orientado al Juego**: El software sirve al diseño del juego; las especificaciones funcionales (SPECs) preceden a la infraestructura técnica.
 
 ---
 
@@ -38,7 +39,8 @@ GRAVITY responde a estos desafíos mediante:
 
 ## 🧭 Fases del Proyecto
 
-1. **Fase 0 — Fundacional (ACTUAL)**: Creación del Workspace AI-Native, directivas, roles, ADRs, SPECs y templates. Cero código de gameplay.
-2. **Fase 1 — Core Network & ECS Primitives**: Implementación de la simulación autoritativa básica, replicación de estado y contratos de componentes.
-3. **Fase 2 — Prototipado en Sandbox**: Experimentos de mecánicas y físicas en `sandbox/`.
-4. **Fase 3 — Módulos de Gameplay Primarios**: Construcción modular en `game/modules/`.
+1. **Fase 0 — Fundacional (COMPLETADA)**: Creación del Workspace AI-Native, directivas, roles, ADRs y templates.
+2. **Fase 0.5 — Game Architecture (ACTUAL)**: Diseño funcional del videojuego mediante SPECs formales de gameplay (`movement`, `camera`, `vision`, `combat`, `drone`, `hack`, `exoskeleton`, `matchmaking`, `map`, `main_loop`).
+3. **Fase 1 — Infrastructure & Technical Architecture**: Implementación del `INetworkDriver`, ECS y Event Bus basados en las SPECs de la Fase 0.5.
+4. **Fase 2 — Prototipado en Sandbox**: Experimentos de mecánicas y físicas en `sandbox/`.
+5. **Fase 3 — Módulos de Gameplay Primarios**: Construcción modular en `game/modules/`.
