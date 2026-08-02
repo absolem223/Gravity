@@ -38,6 +38,9 @@ Incluye criterios de aprobación y fallo, y plantilla de registro de sesión de 
 ### [vertical_slice_implementation_plan.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_implementation_plan.md)
 Plan de implementación con **alcance congelado**. 9 etapas ordenadas por dependencias, cada una con criterio de Done. Incluye tabla de validación contra los 5 pilares y restricciones adicionales de implementación.
 
+### [vertical_slice_success_criteria.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_success_criteria.md)
+Contrato de evaluación pre-implementación: criterio principal de éxito, matriz de evidencias por pilar, métricas de playtest, 7 fallos críticos (FC-01 a FC-07) y separación estricta prototipo/producto.
+
 ---
 
 ## 🔴 Decisión Técnica Prioritaria

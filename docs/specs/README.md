@@ -37,6 +37,7 @@ Las SPECs son la Fuente Única de Verdad (SSOT) funcional del juego. Ningún mó
 - [vertical_slice_scope.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_scope.md): Alcance del primer prototipo jugable. 4 operadores prototipo, Dron Gen 1, Mapa SANDBOX-01, Núcleo IA. **DT-01 ✅ Cerrada (Top-Down Isométrica)**.
 - [vertical_slice_validation_plan.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_validation_plan.md): 12 preguntas de validación con criterios de aprobación/fallo y plantilla de playtest.
 - [vertical_slice_implementation_plan.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_implementation_plan.md): Plan de implementación con **alcance congelado** — 9 etapas ordenadas por dependencias.
+- [vertical_slice_success_criteria.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_success_criteria.md): Contrato de evaluación — criterio principal, matriz de evidencia por pilar, 7 fallos críticos (FC-01 a FC-07) y límites prototipo/producto.
 
 ---
 
