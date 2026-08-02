@@ -29,7 +29,13 @@ Las SPECs son la Fuente Única de Verdad (SSOT) funcional del juego. Ningún mó
 - [match_flow_spec.md](file:///E:/GRAVITY/docs/specs/validation/match_flow_spec.md): Flujo cronológico completo integrado con las 3 Generaciones, anti-camping y anti-snowball.
 - [player_experience.md](file:///E:/GRAVITY/docs/specs/validation/player_experience.md): Experiencia emocional, UX y GRAVITY vs shooters tradicionales.
 - [operator_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/operator_design_rules.md): Cuestionario Mandatory de 5 preguntas y anti-patrones de operadores.
-- [technical_requirements_preview.md](file:///E:/GRAVITY/docs/specs/validation/technical_requirements_preview.md): Vista previa de subsistemas técnicos futuros.
+- [technical_requirements_preview.md](file:///E:/GRAVITY/docs/specs/validation/technical_requirements_preview.md): Requisitos técnicos del Vertical Slice por sistema, arquitectura de módulos GDScript y decisiones técnicas previas al código. **Rev 2.0**
+
+---
+
+## 📊 Fase 1 — Vertical Slice Design (`docs/specs/vertical_slice/`)
+- [vertical_slice_scope.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_scope.md): Alcance del primer prototipo jugable. 4 operadores prototipo, Dron Gen 1, Mapa SANDBOX-01, Objetivo del Núcleo IA.
+- [vertical_slice_validation_plan.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_validation_plan.md): 12 preguntas de validación con criterios de aprobación/fallo y plantilla de playtest.
 
 ---
 
