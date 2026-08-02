@@ -1,55 +1,80 @@
-# SPEC VALIDATION: DRONE DESIGN RULES — REGLAS DEL SISTEMA DE DRONES
+# SPEC VALIDATION: DRONE DESIGN RULES — REGLAS Y RECOVERY SYSTEM DEL DRON
 
-- **Estado**: Aprobado (Fase 0.5 — Validación y Profundización)
+- **Estado**: Actualizado / Revisión 2.0 (Fase 0.5 — Validación y Profundización)
 - **Ubicación**: `docs/specs/validation/drone_design_rules.md`
 
 ---
 
-## 🎯 Filosofía del Dron: Extensión, No Mascota
+## 🎯 1. Filosofía del Dron: La Extensión Permanente del Operador
 
-En GRAVITY, el Dron de Asistencia **no es un adorno visual ni una torreta de daño automático**. 
+En GRAVITY, la identidad inmutable del jugador no es solo una persona con un rifle, sino la **Tríada Táctica**:
 
-El Dron es el ojo cibernético del jugador en el mapa. Sin el Dron, el operador queda funcionalmente ciego y expuesto.
+$$\text{Identidad del Jugador} = \text{Operador Humano} + \text{Exoesqueleto Táctico} + \text{Dron Permanente}$$
 
----
+### Diferenciación Frente a Habilidades Tradicionales:
+- **No es una Habilidad Temporal (*Cooldown Skill*)**: El dron está físicamente presente en el juego desde el segundo 0 hasta el final de la partida.
+- **No es una Mascota Pasiva (*Pet*)**: No actúa como un compañero de RPG que ataca de forma autónoma descontrolada.
+- **No es un Gadget Secundario (*Utilería*)**: No se tira y se olvida como una granada. Es la segunda fuente principal de percepción y presencia táctica del operador.
 
-## 🛠️ Acciones Exclusivas que SIEMPRE Requieren Drones
-
-1. **Exploración de Conductos Interiores**: Infiltrarse en accesos de tuberías o techos donde el operador humano no cabe físicamente.
-2. **Triangulación de Niebla de Guerra**: Despejar sectores oscuros del minimapa y marcar firmas electromagnéticas enemigas.
-3. **Hackeo Remoto a Distancia**: Desactivar puertas, terminales o cámaras desde una posición de cobertura sin exponer el cuerpo del operador.
-4. **Despliegue de Sensores de Cobertura**: Proyectar humo térmico o barreras electromagnéticas temporales en el perímetro del Núcleo.
-
----
-
-## 🛑 Límites y Restricciones Estructurales del Dron
-
-- **Cero Daño Primario Automático**: Los drones no llevan ametralladoras ni eliminan enemigos por sí solos.
-- **Autonomía por Batería Táctica**: El vuelo continuo consume batería. Agotar la batería obliga al dron a volver a la espalda del operador para recargarse durante 12 segundos.
-- **Rango de Enlace de Red**: Si el dron se aleja más de 45 metros del operador, pierde señal, entra en modo deriva y queda vulnerable al hackeo enemigo.
-- **Firma de Audio y Luz**: Un dron activo emite un zumbido electromagnético tenue y una luz de escaneo, permitiendo a los defensores atentos detectar su presencia antes de ser escaneados.
+### Especialización Progresiva del Dron:
+A lo largo de la partida, el dron del operador puede adaptarse y especializarse en 5 ramas según las necesidades de la escuadra:
+1. **Reconocimiento e Inteligencia**: Sonar de alta frecuencia, marcado térmico, filtrado de niebla de guerra.
+2. **Defensa Territorial**: Proyección de barreras electromagnéticas, atenuación de daño balístico, intercepción de granadas.
+3. **Soporte Logístico**: Reabastecimiento energético de escuadra, aceleración de recargas, transferencia de escudo.
+4. **Asistencia Ofensiva**: Vectorización de fuego (*Smart Vectoring*), supresión coordinada, marcado de puntos débiles.
+5. **Manipulación Tecnológica**: Hackeo remoto de puertas, inhabilitación de visores enemigos, sobrecarga de terminales.
 
 ---
 
-## ⚖️ El Trilema Táctico del Dron: ¿Proteger, Usar o Sacrificar?
+## 🔧 2. Sistema de Pérdida y Recuperación: Economía de Piezas y Componentes
 
-En cada enfrentamiento, el jugador debe tomar una decisión crítica con su Dron:
+Cuando un Dron es destruido por fuego o interrupción enemiga, **NO existe una regeneración automática por tiempo sin consecuencias**. La pérdida del dron deja al operador ciego e incompleto.
 
 ```
-                  ┌─────────────────────────────┐
-                  │    DECISIÓN DEL DRON        │
-                  └──────────────┬──────────────┘
-                                 │
-         ┌───────────────────────┼───────────────────────┐
-         ▼                       ▼                       ▼
-┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
-│   1. PROTEGER    │   │     2. USAR      │   │  3. SACRIFICAR   │
-│ Mantener en hombro│   │ Piloto/Escaneo   │   │ Detonar EMP      │
-│ (Garantiza info  │   │ (Obtiene visión, │   │ (Inhabilita sala,│
-│ local constante) │   │ expone cuerpo)   │   │ pierde dron 30s) │
-└──────────────────┘   └──────────────────┘   └──────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                 DESTRUCCIÓN DEL DRON EN COMBATE             │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 📍 EMISIÓN DE RESTOS TECNOLÓGICOS (Wreckage Site)           │
+│ El dron destruido deja caer Componentes y Piezas en el mapa. │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 🛠️ RECOLECCIÓN Y RECUPERACIÓN                                │
+│ Piezas obtenibles de:                                       │
+│ 1. Restos de Drones Enemigos/Aliados destruidos             │
+│ 2. Torres y Sensores Defensivos neutralizados               │
+│ 3. Tecnología abandonada en sectores del mapa               │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 🔄 SÍNTESIS EN PUNTO DE REABASTECIMIENTO                     │
+│ Reparar Dron / Mejorar Módulos / Sintetizar Variante        │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-1. **Proteger el Dron**: Guardarlo para conservar la visibilidad local y el radar de espaldas.
-2. **Usar el Dron**: Enviarlo a escanear la sala enemiga para otorgar datos a la escuadra, asumiendo el riesgo de que el enemigo lo destruya de un disparo.
-3. **Sacrificar el Dron**: Activar el modo de sobrecarga EMP del dron para inhabilitar las defensas de una sala completa, perdiendo toda la información del dron durante los siguientes 30 segundos.
+### Refuerzo del Pilar "El terreno decide la batalla":
+- La destrucción de drones genera **Puntos de Interés Dinámicos (Scrap Zones)** en la geometría del mapa.
+- Un sector donde ocurrió un tiroteo tenso se llena de restos tecnológicos valiosos. La escuadra que logre controlar físicamente ese terreno podrá cosechar componentes para reparar sus drones y mejorar sus módulos para el siguiente asalto al Núcleo.
+
+---
+
+## 🛠️ 3. Nuevo Rol Táctico: Tech Scavenger / Field Engineer (Logística y Recursos)
+
+La introducción de la economía de piezas abre la posibilidad de una función táctica especializada en la gestión de recursos de red:
+
+- **Función Primaria**: Recuperación rápida de componentes en zonas de conflicto, reparación acelerada de drones aliados en el campo y fortificación de terminales.
+- **Herramientas**: Extractor de piezas a distancia (vía dron de soporte), campo de recarga de batería acelerado.
+- **Dependencia y Balance**: El Scavenger no posee la potencia de penetración del *Breacher* ni el alcance del *Overwatch*, por lo que requiere protección armada mientras cosecha restos en zonas disputadas.
+
+---
+
+## ⚖️ Decisiones Tácticas del Jugador
+
+1. **¿Avanzar a cosechar las piezas del dron enemigo destruido o mantener la posición segura?**
+2. **¿Gastar los componentes recolectados en reconstruir mi dron destruido o transferirlos para mejorar el dron de soporte de mi aliado?**
+3. **¿Arriesgar el dron en un escaneo profundo sabiendo que su destrucción dejará recursos al enemigo?**

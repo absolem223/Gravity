@@ -1,81 +1,56 @@
-# SPEC: OBJECTIVE SYSTEM — SISTEMA DEL NÚCLEO IA Y CONTROL TERRITORIAL
+# SPEC: OBJECTIVE SYSTEM — SISTEMA DEL NÚCLEO IA Y OPERACIÓN TECNOLÓGICA
 
-- **Estado**: Propuesto (Fase 0.5 — Game Architecture)
+- **Estado**: Actualizado / Revisión 2.0 (Fase 0.5 — Validación y Profundización)
 - **Dominio**: Match & Objective
 - **Ubicación**: `docs/specs/match/objective_system.md`
 
 ---
 
-## 🎯 Filosofía del Objetivo Principal
+## 🎯 Filosofía del Objetivo: Operación Tecnológica, No "Plantar Bomba"
 
-El **Núcleo IA** es el centro neurálgico y la única razón de existir de cada partida en GRAVITY. 
+En los shooters tradicionales, el objetivo se reduce a un cliché: "llegar al sitio A/B, presionar la tecla E durante 4 segundos para plantar una bomba y esperar a que explote".
 
-No es una simple "bandera" estática ni un punto de captura pasivo. El Núcleo IA es una **entidad tecnológica reactiva** que emite datos, altera el entorno electromagnético del mapa y exige la concentración de la escuadra para su control.
+**En GRAVITY, el hackeo del Núcleo IA es una Operación Tecnológica Continuada y Reactiva**:
+
+1. **No es un temporizador estático**: El Núcleo no es una bomba con mecha de 45 segundos. Es una IA viva que requiere un **enlace de ancho de banda constante** con la escuadra atacante.
+2. **No requiere mantenerse inmóvil apretando un botón**: Una vez iniciado el protocolo de enlace mediante el Dron o la terminal del operador, el hackeo se sostiene por **Presencia de Red en el Perímetro**. El operador puede moverse, disparar y cubrirse dentro de la zona de enlace.
+3. **Integración Total de Drones**: El Dron puede actuar como la antena repetidora del enlace. Si el operador está fuera de la línea visual directa del Núcleo, pero su Dron está anclado en el techo de la sala, la transferencia continúa.
 
 ---
 
-## 🔄 Las 4 Fases de Captura del Núcleo IA
+## 🔄 Las 4 Fases de la Operación Tecnológica
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ FASE 1: RECONOCIMIENTO Y LOCALIZACIÓN                       │
-│ - El Núcleo emite firmas electromagnéticas en el mapa.      │
-│ - La ubicación exacta debe ser triangulada por los drones.  │
+│ 1. TRIANGULACIÓN & MAPEO (Información)                      │
+│    - Descubrir la firma del Núcleo y limpiar niebla de la sala│
 └──────────────┬──────────────────────────────────────────────┘
                │
                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ FASE 2: ENLACE Y DESBLOQUEO DE PUERTOS                      │
-│ - Un operador o dron especializado inicia el enlace físico.  │
-│ - Se remueven los cortafuegos físicos/lógicos del Núcleo.   │
+│ 2. APERTURA DE CORTAFUEGOS (Hackeo Inicial)                │
+│    - Romper el protocolo de seguridad inicial (Dron o Op)   │
 └──────────────┬──────────────────────────────────────────────┘
                │
                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ FASE 3: TRANSFERENCIA AUTORITATIVA DE DATOS (0% a 100%)    │
-│ - Avance continuo de la barra de descarga de la escuadra.    │
-│ - Requiere presencia y control del perímetro (Control Zone).│
+│ 3. PERÍMETRO DE TRANSFERENCIA (Control Territorial)         │
+│    - Descarga continua de datos por presencia de escuadra.  │
+│    - Interrupción por presencia enemiga en la zona.        │
 └──────────────┬──────────────────────────────────────────────┘
                │
                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ FASE 4: SOBRECARGA Y ESTABILIZACIÓN FINAL                   │
-│ - Consolidación del control del Núcleo.                     │
-│ - Cierre de la ronda y otorgamiento del punto decisivo.     │
+│ 4. SOBRECARGA & CONSOLIDACIÓN                               │
+│    - Estabilización del Núcleo bajo control del equipo.     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🏔️ Mecánica de Control Territorial
+## 🛡️ ¿Qué Determina el Éxito de la Operación?
 
-El control del Núcleo no se mide por quién se paró encima de una plataforma fija. Se mide por el **Perímetro de Dominio de Escuadra**:
-
-1. **Zona del Perímetro**: Cada Núcleo posee un área circular/geométrica que lo rodea (Radio de Enlace).
-2. **Dominio de Red**: Si la escuadra Atacante tiene más presencia de operadores/drones activos en la zona que la escuadra Defensora, el enlace de descarga avanza.
-3. **Interrupción por Enlace Contestado**: Si ambas escuadras tienen igual número de operadores/drones dentro del perímetro, el progreso se pausa (*Contested State*) y la tensión se dispara.
-
----
-
-## ⚡ Generación de Tensión Dinámica durante la Partida
-
-Para evitar partidas estáticas o aburridas, el Sistema de Objetivo introduce 3 catalizadores de tensión:
-
-### 1. Colapso del Cono de Visión (EM Storm Event)
-A medida que la descarga del Núcleo supera el 50%, el Núcleo emite pulsos electromagnéticos que reducen la visibilidad lejana, forzando a los francotiradores y exploradores a acercarse al perímetro.
-
-### 2. Alerta Sonora y Térmica Progresiva
-Con cada 25% de datos descargados, el Núcleo incrementa su tono de sirena y cambia de color, alertando a la escuadra enemiga sobre la urgencia imminente de un contraataque.
-
-### 3. Protocolo de Sobrecarga (Overtime / Sudden Death)
-Si el tiempo de ronda finaliza pero un equipo mantiene un enlace de descarga activo al Núcleo en estado no contestado, la partida entra en **Overtime** hasta que la escuadra contraria rompa el enlace o el Núcleo complete su ciclo.
-
----
-
-## ⚖️ Auditoría contra los 5 Pilares de Diseño
-
-1. **Pilar 1 (La información es el recurso más valioso)**: Cumplido. La ubicación del Núcleo y el porcentaje de descarga enemiga son la información crítica de la partida.
-2. **Pilar 2 (El jugador nunca combate solo)**: Cumplido. Mantener la zona del Núcleo exige cubrir múltiples entradas de forma simultánea.
-3. **Pilar 3 (El objetivo es controlar el núcleo, no eliminar enemigos)**: Cumplido. Un equipo puede perder a 3 jugadores, pero si el último jugador mantiene el enlace y completa el 100%, gana la partida.
-4. **Pilar 4 (El terreno decide la batalla)**: Cumplido. El perímetro alrededor del Núcleo contiene paredes hackeables, coberturas y conductos de drones.
-5. **Pilar 5 (La cooperación supera al héroe individual)**: Cumplido. Interrumpir un Núcleo contestado requiere asaltar el perímetro en coordinación de escuadra.
+- **La Información**: Conocer por qué conducto o puerta intentará entrar la escuadra defensora a interrumpir el enlace.
+- **La Posición**: Ubicar a los operadores en ángulos cruzados para cubrir la zona de enlace sin apiñarse.
+- **Los Drones**: Utilizar drones de barrera electromagnética para bloquear las miras de los defensores mientras la descarga alcanza el 100%.
+- **El Control Territorial**: Expulsar físicamente a los defensores fuera de la zona del perímetro para mantener el avance de la barra de transferencia.

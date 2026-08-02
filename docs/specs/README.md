@@ -10,11 +10,12 @@ Las SPECs son la Fuente Única de Verdad (SSOT) funcional del juego. Ningún mó
 
 ## 🔍 Validaciones y Profundización de Diseño (`docs/specs/validation/`)
 
-- [design_validation.md](file:///E:/GRAVITY/docs/specs/validation/design_validation.md): Auditoría de todos los sistemas contra los 5 Pilares de Diseño.
+- [design_validation.md](file:///E:/GRAVITY/docs/specs/validation/design_validation.md): Auditoría de decisiones confirmadas vs abiertas y pilares.
+- [drone_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/drone_design_rules.md): Reglas del sistema de drones (Tríada Táctica, extensión permanente y recuperación por piezas).
+- [drone_resource_economy.md](file:///E:/GRAVITY/docs/specs/validation/drone_resource_economy.md): Economía de piezas, recolección de chatarra y prevención de snowball.
 - [player_experience.md](file:///E:/GRAVITY/docs/specs/validation/player_experience.md): Definición de la experiencia emocional, UX y GRAVITY vs shooters tradicionales.
 - [match_flow_spec.md](file:///E:/GRAVITY/docs/specs/validation/match_flow_spec.md): Flujo completo de partida, mecanismos anti-camping y anti-snowball.
 - [operator_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/operator_design_rules.md): Reglas obligatorias para diseñar operadores futuros (Cuestionario de 5 preguntas).
-- [drone_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/drone_design_rules.md): Reglas del sistema de drones (Acciones exclusivas, límites y trilema táctico).
 - [technical_requirements_preview.md](file:///E:/GRAVITY/docs/specs/validation/technical_requirements_preview.md): Vista previa de subsistemas técnicos requeridos a futuro.
 
 ---
@@ -49,7 +50,7 @@ Las SPECs son la Fuente Única de Verdad (SSOT) funcional del juego. Ningún mó
 - `world/hack.md`: Hackeo de terminales, puertas y dispositivos.
 
 ### 🏆 6. Match
-- `match/objective_system.md`: Fases de captura del Núcleo IA y control territorial.
+- `match/objective_system.md`: Fases de captura del Núcleo IA y control territorial (Operación Tecnológica).
 - `match/matchmaking.md`: Lobbies, salas autoritativas y sesiones.
 
 ### 📈 7. Progression
