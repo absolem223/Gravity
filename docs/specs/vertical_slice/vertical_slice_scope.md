@@ -44,7 +44,7 @@ El Vertical Slice no es una versión reducida de GRAVITY completo. Es una prueba
 | **Sesión** | Sin matchmaking. Un host lanza la sesión, los demás se unen localmente. |
 | **Split-screen** | No requerido. Perspectiva top-down o cámara isométrica comparten pantalla. |
 
-> 🔶 **Decisión Abierta**: La perspectiva de cámara del VS (top-down, isométrica o first-person) no está definida en el GDD. Es la primera decisión técnica del Vertical Slice que debe resolverse antes de construir el mapa de prueba.
+> ✅ **DT-01 CERRADA**: Se adopta **Top-Down Isométrica** como perspectiva oficial del Vertical Slice. `Camera3D` con ángulo fijo de 60-70°, anclada al centroide del grupo de jugadores con zoom dinámico. Ver [technical_requirements_preview.md](file:///E:/GRAVITY/docs/specs/validation/technical_requirements_preview.md).
 
 ---
 

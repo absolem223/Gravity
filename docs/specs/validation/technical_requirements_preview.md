@@ -17,18 +17,20 @@ En la Fase 0.5, este documento era una vista previa conceptual de los subsistema
 Las siguientes decisiones deben resolverse **antes de escribir la primera línea de código del VS**. Son el primer bloque de trabajo de la Fase 1.
 
 ### DT-01 — Perspectiva de Cámara
-- **Estado**: 🔶 ABIERTA — Decisión Prioritaria
-- **Opciones**:
-  - **A — Top-Down Isométrico**: Mayor legibilidad táctica del mapa. Más fácil de prototipar. Menor inmersión.
-  - **B — Third-Person Over-Shoulder**: Mayor inmersión. Más complejo de implementar (curva de aprendizaje de Godot 3D + física). Lectura táctica más difícil en espacios cerrados.
-  - **C — First-Person**: Máxima inmersión. Implica diseño de UI de HUD complejo y mayor costo de protipado. El Modo Piloto del Dron ganaría naturalidad.
-- **Recomendación de diseño**: Comenzar con Top-Down Isométrico para el VS. La perspectiva puede cambiar en producción sin invalidar las mecánicas validadas.
-- **¿Quién decide?**: Director de Proyecto + Director de Arte.
+- **Estado**: ✅ CERRADA
+- **Decisión**: **Top-Down Isométrica** para el Vertical Slice.
+- **Justificación**:
+  - Máxima legibilidad táctica del mapa y los conos de visión.
+  - Compatible con cooperativo local 2-4 jugadores en una sola pantalla compartida.
+  - Permite analizar terreno, líneas de visión y posición de drones sin ambigüedad.
+  - Reduce complejidad técnica durante la validación del gameplay.
+  - Mantiene la identidad de GRAVITY centrada en información y coordinación.
+- **Implicaciones técnicas**: `Camera3D` en Godot con ángulo fijo aproximado de 60-70° sobre el plano XZ. Posición anclada al centroide del grupo de jugadores con zoom dinámico que agranda el encuadre cuando los jugadores se dispersan.
+- **Puede revisarse en producción**: Sí. La perspectiva es una decisión del VS — no invalida las mecánicas validadas.
 
 ### DT-02 — Motor de Física de Movimiento
-- **Estado**: 🔶 ABIERTA
-- **Decisión requerida**: ¿El movimiento del operador usa `CharacterBody3D` (Godot) con física propia, o `RigidBody3D` con físicas de motor? El VS no requiere físicas complejas — `CharacterBody3D` es suficiente y más controlable.
-- **Recomendación**: `CharacterBody3D` con `move_and_slide()` para el VS. Revisar en producción.
+- **Estado**: ✅ CERRADA
+- **Decisión**: `CharacterBody3D` con `move_and_slide()` para el VS. Revisar en producción.
 
 ### DT-03 — Persistencia de Sesión del VS
 - **Estado**: 🟢 DECIDIDA

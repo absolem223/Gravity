@@ -35,6 +35,9 @@ Define las 12 preguntas concretas que el prototipo debe ser capaz de responder, 
 
 Incluye criterios de aprobación y fallo, y plantilla de registro de sesión de playtest.
 
+### [vertical_slice_implementation_plan.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_implementation_plan.md)
+Plan de implementación con **alcance congelado**. 9 etapas ordenadas por dependencias, cada una con criterio de Done. Incluye tabla de validación contra los 5 pilares y restricciones adicionales de implementación.
+
 ---
 
 ## 🔴 Decisión Técnica Prioritaria

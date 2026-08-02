@@ -123,3 +123,18 @@ El Vertical Slice definirá el subconjunto mínimo de sistemas necesarios para e
 - Un mapa de sandbox para pruebas de mecánicas fundamentales.
 
 Los dos problemas abiertos post-Gen 3 (EMP y conductos) se resolverán durante el prototipado del Vertical Slice en `sandbox/`.
+
+---
+
+## 🔒 Fase 1 — Vertical Slice: ALCANCE CONGELADO
+
+**DT-01 — Cámara**: ✅ Aprobada — **Top-Down Isométrica**. `Camera3D` ángulo fijo 60-70°, zoom dinámico centrado en el grupo de jugadores.
+
+**DT-02 — Física**: ✅ Aprobada — `CharacterBody3D` + `move_and_slide()`.
+
+**DT-03 — Persistencia**: ✅ Aprobada — Sin persistencia entre sesiones. Todo en memoria.
+
+**Freeze de Alcance**: El scope del VS está cerrado. Ver [vertical_slice_implementation_plan.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_implementation_plan.md).
+
+**Regla de validación de cada nuevo sistema**:
+> “¿Este sistema demuestra uno de los 5 pilares de GRAVITY?” Si la respuesta es no, queda fuera del Vertical Slice.
