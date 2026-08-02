@@ -1,29 +1,58 @@
 # input_manager.gd
-# Technical Rationale: Centralized local multiplayer input dispatcher (2-4 players).
-# Maps hardware devices (Keyboard/Mouse & Gamepads 0-3) to abstract Player IDs.
+# Technical Rationale: Refined input management system for 2-4 local players.
+# Encapsulates player device profiles (PlayerInputProfile) and manages gamepad hotplugging dynamically.
 # Adheres to ADR-0001 (GDScript 2.x Strict Typing).
 
 class_name InputManager
 extends Node
 
+## Signals
+signal device_connection_changed(player_id: int, connected: bool)
+
 ## Number of supported local players in Vertical Slice
 const MAX_PLAYERS: int = 4
 
-## Mapping of player IDs (1-4) to assigned device IDs (-1 for Keyboard/Mouse, 0+ for Gamepads)
-var _player_device_map: Dictionary = {
-	1: -1, # Default: Player 1 on Keyboard/Mouse or Gamepad 0
-	2: 0,  # Default: Player 2 on Gamepad 0 (or 1 if P1 uses Gamepad 0)
-	3: 1,  # Default: Player 3 on Gamepad 1
-	4: 2   # Default: Player 4 on Gamepad 2
-}
+## Inner data class representing a player's input hardware profile
+class PlayerInputProfile:
+	enum DeviceType { KEYBOARD_MOUSE, GAMEPAD, UNASSIGNED }
+
+	var player_id: int = 1
+	var device_id: int = -1 # -1 = Keyboard/Mouse, 0+ = Gamepad Device ID
+	var device_type: DeviceType = DeviceType.KEYBOARD_MOUSE
+	var is_connected: bool = true
+	var role_name_placeholder: String = "Operator"
+
+	func get_device_name() -> String:
+		match device_type:
+			DeviceType.KEYBOARD_MOUSE:
+				return "Keyboard & Mouse"
+			DeviceType.GAMEPAD:
+				return "Gamepad #%d" % device_id
+			_:
+				return "Disconnected"
+
+## Registry of active player profiles indexed by Player ID (1..4)
+var _profiles: Dictionary = {}
 
 ## Tracks connected Joypads detected by Godot OS layer
 var _connected_joypads: Array[int] = []
 
 func _ready() -> void:
+	_initialize_profiles()
 	_detect_joypads()
 	Input.joy_connection_changed.connect(_on_joy_connection_changed)
 	_setup_default_input_map()
+
+## Creates initial default profiles for players 1 to 4
+func _initialize_profiles() -> void:
+	_profiles.clear()
+	var role_names: Array[String] = ["Recon", "Vanguard", "Tech Disruptor", "Field Engineer"]
+	
+	for p_id: int in range(1, MAX_PLAYERS + 1):
+		var profile: PlayerInputProfile = PlayerInputProfile.new()
+		profile.player_id = p_id
+		profile.role_name_placeholder = role_names[p_id - 1]
+		_profiles[p_id] = profile
 
 ## Detects currently connected controllers at launch
 func _detect_joypads() -> void:
@@ -40,25 +69,35 @@ func _on_joy_connection_changed(device_id: int, connected: bool) -> void:
 			_connected_joypads.append(device_id)
 	else:
 		_connected_joypads.erase(device_id)
+	
 	_auto_assign_devices()
 
 ## Automatically assigns available controllers to players 1-4
 func _auto_assign_devices() -> void:
-	if _connected_joypads.size() == 0:
-		# Keyboard for P1, default stubs for P2-P4
-		_player_device_map[1] = -1
-		_player_device_map[2] = 0
-		_player_device_map[3] = 1
-		_player_device_map[4] = 2
-	else:
-		# If controllers are present, assign Gamepad 0 to P1 (or keep Keyboard), Gamepad 1 to P2, etc.
-		_player_device_map[1] = -1 # P1 gets Keyboard + Gamepad 0 if present
-		for i: int in range(0, _connected_joypads.size()):
-			var p_id: int = i + 2 # P2, P3, P4
-			if p_id <= MAX_PLAYERS:
-				_player_device_map[p_id] = _connected_joypads[i]
+	# P1 always gets Keyboard by default, or Gamepad 0 if present
+	var p1_prof: PlayerInputProfile = _profiles.get(1)
+	if p1_prof != null:
+		p1_prof.device_id = -1
+		p1_prof.device_type = PlayerInputProfile.DeviceType.KEYBOARD_MOUSE
+		p1_prof.is_connected = true
 
-## Configures InputMap programmatically for 4 players to prevent project.godot bloat
+	# Assign remaining joypads to P2, P3, P4
+	for i: int in range(0, 3):
+		var p_id: int = i + 2 # P2, P3, P4
+		var prof: PlayerInputProfile = _profiles.get(p_id)
+		if prof != null:
+			if i < _connected_joypads.size():
+				prof.device_id = _connected_joypads[i]
+				prof.device_type = PlayerInputProfile.DeviceType.GAMEPAD
+				prof.is_connected = true
+			else:
+				# Keyboard fallbacks for P2-P4 if joypads are missing
+				prof.device_id = -1
+				prof.device_type = PlayerInputProfile.DeviceType.KEYBOARD_MOUSE
+				prof.is_connected = true
+			device_connection_changed.emit(p_id, prof.is_connected)
+
+## Configures InputMap programmatically for 4 players
 func _setup_default_input_map() -> void:
 	for player_id: int in range(1, MAX_PLAYERS + 1):
 		_ensure_player_action(player_id, "move_left")
@@ -74,6 +113,10 @@ func _ensure_player_action(player_id: int, action_suffix: String) -> void:
 	if not InputMap.has_action(action_name):
 		InputMap.add_action(action_name)
 
+## Retrieves profile for specified player ID
+func get_profile(player_id: int) -> PlayerInputProfile:
+	return _profiles.get(player_id, null)
+
 ## Returns 2D normalized movement vector for specified player ID
 func get_movement_vector(player_id: int) -> Vector2:
 	var left_action: String = "p%d_move_left" % player_id
@@ -81,26 +124,24 @@ func get_movement_vector(player_id: int) -> Vector2:
 	var up_action: String = "p%d_move_up" % player_id
 	var down_action: String = "p%d_move_down" % player_id
 
-	# Primary input reading using standard InputMap
 	var input_vec: Vector2 = Input.get_vector(left_action, right_action, up_action, down_action)
 
-	# Fallback for Direct Keyboard inputs per player slot (P1: WASD, P2: IJKL, P3: Arrow Keys, P4: Numpad)
+	# Read Gamepad Axis if profile specifies Gamepad
+	var profile: PlayerInputProfile = get_profile(player_id)
+	if profile != null and profile.device_type == PlayerInputProfile.DeviceType.GAMEPAD and profile.device_id >= 0:
+		var joy_x: float = Input.get_joy_axis(profile.device_id, JOY_AXIS_LEFT_X)
+		var joy_y: float = Input.get_joy_axis(profile.device_id, JOY_AXIS_LEFT_Y)
+		var joy_vec: Vector2 = Vector2(joy_x, joy_y)
+		if joy_vec.length() > 0.2:
+			input_vec = joy_vec
+
+	# Fallback for Keyboard split-testing on single keyboard
 	if input_vec == Vector2.ZERO:
 		input_vec = _read_fallback_keyboard_vector(player_id)
-	
-	# Fallback for Gamepad devices according to device map
-	if input_vec == Vector2.ZERO:
-		var device_id: int = _player_device_map.get(player_id, -2)
-		if device_id >= 0:
-			var joy_x: float = Input.get_joy_axis(device_id, JOY_AXIS_LEFT_X)
-			var joy_y: float = Input.get_joy_axis(device_id, JOY_AXIS_LEFT_Y)
-			var joy_vec: Vector2 = Vector2(joy_x, joy_y)
-			if joy_vec.length() > 0.2: # Deadzone filter
-				input_vec = joy_vec
 
 	return input_vec.normalized() if input_vec.length() > 1.0 else input_vec
 
-## Fallback mapping for testing 4 players on a single keyboard when gamepads are absent
+## Fallback mapping for testing 4 players on a single keyboard
 func _read_fallback_keyboard_vector(player_id: int) -> Vector2:
 	var vec: Vector2 = Vector2.ZERO
 	match player_id:

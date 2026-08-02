@@ -1,12 +1,14 @@
-[gd_scene load_steps=12 format=3 uid="uid://csandboxtest001"]
+[gd_scene load_steps=13 format=3 uid="uid://csandboxtest001"]
 
 [ext_resource type="Script" path="res://scripts/sandbox_test_scene.gd" id="1_scene_script"]
 
 [ext_resource type="Script" path="res://scripts/input_manager.gd" id="2_input_script"]
 
-[ext_resource type="Script" path="res://scripts/camera_controller.gd" id="3_camera_script"]
+[ext_resource type="Script" path="res://scripts/player_manager.gd" id="3_player_mgr_script"]
 
-[ext_resource type="PackedScene" uid="uid://coperatorbase001" path="res://scenes/operator_placeholder.tscn" id="4_operator_scene"]
+[ext_resource type="Script" path="res://scripts/camera_controller.gd" id="4_camera_script"]
+
+[ext_resource type="PackedScene" uid="uid://csquadhud001" path="res://scenes/squad_hud.tscn" id="5_hud_scene"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
 sky_top_color = Color(0.15, 0.2, 0.3, 1)
@@ -47,15 +49,20 @@ shadow_enabled = true
 [node name="InputManager" type="Node" parent="."]
 script = ExtResource("2_input_script")
 
+[node name="PlayerManager" type="Node" parent="."]
+script = ExtResource("3_player_mgr_script")
+
 [node name="CameraController" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0.422618, 0.906308, 0, -0.906308, 0.422618, 0, 0, 0)
-script = ExtResource("3_camera_script")
+script = ExtResource("4_camera_script")
 pitch_angle_degrees = 65.0
 min_zoom_distance = 12.0
 max_zoom_distance = 28.0
 
 [node name="Camera3D" type="Camera3D" parent="CameraController"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 16)
+
+[node name="SquadHUD" parent="." instance=ExtResource("5_hud_scene")]
 
 [node name="MapGeometry" type="Node3D" parent="."]
 
@@ -94,21 +101,3 @@ shape = SubResource("BoxShape3D_obstacle")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/MezzanineElevated"]
 mesh = SubResource("BoxMesh_obstacle")
-
-[node name="Operators" type="Node3D" parent="."]
-
-[node name="OperatorP1" parent="Operators" instance=ExtResource("4_operator_scene")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0, 0)
-player_id = 1
-
-[node name="OperatorP2" parent="Operators" instance=ExtResource("4_operator_scene")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, 0)
-player_id = 2
-
-[node name="OperatorP3" parent="Operators" instance=ExtResource("4_operator_scene")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0, 3)
-player_id = 3
-
-[node name="OperatorP4" parent="Operators" instance=ExtResource("4_operator_scene")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, 3)
-player_id = 4

@@ -41,6 +41,9 @@ Plan de implementación con **alcance congelado**. 9 etapas ordenadas por depend
 ### [vertical_slice_success_criteria.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_success_criteria.md)
 Contrato de evaluación pre-implementación: criterio principal de éxito, matriz de evidencias por pilar, métricas de playtest, 7 fallos críticos (FC-01 a FC-07) y separación estricta prototipo/producto.
 
+### [local_coop_implementation_notes.md](file:///E:/GRAVITY/docs/specs/vertical_slice/local_coop_implementation_notes.md)
+Notas de implementación del sistema cooperativo local: arquitectura `PlayerInputProfile`, `PlayerManager`, badges `Label3D`, alertas `[SEPARATED]` y resultados de los tests de cámara A, B y C.
+
 ---
 
 ## 🔴 Decisión Técnica Prioritaria
