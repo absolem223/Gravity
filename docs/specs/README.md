@@ -8,35 +8,34 @@ Las SPECs son la Fuente Única de Verdad (SSOT) funcional del juego. Ningún mó
 
 ---
 
-## 📈 Progresión Tecnológica (`docs/specs/progression/`)
+## 🏛️ Documento Maestro de Pilares
+- [design_pillars.md](file:///E:/GRAVITY/docs/specs/design_pillars.md): Los 5 pilares irrenunciables de GRAVITY.
 
-- [technology_generation_system.md](file:///E:/GRAVITY/docs/specs/progression/technology_generation_system.md): Sistema de Generaciones Tecnológicas (Gen 1 ➔ Gen 2 ➔ Gen 3), Centros de Integración, Recursos de Evolución vs Mantenimiento y Efectos de Red.
+---
+
+## 📈 Progresión Tecnológica (`docs/specs/progression/`)
+- [technology_generation_system.md](file:///E:/GRAVITY/docs/specs/progression/technology_generation_system.md): Generaciones Tecnológicas (Gen 1 → 2 → 3), Doctrinas, Centros de Integración y Efectos de Red.
+- [match_pacing_and_technology_timeline.md](file:///E:/GRAVITY/docs/specs/progression/match_pacing_and_technology_timeline.md): Ritmo emocional de partida, tiempos de referencia por Generación y mecanismos anti-riesgo.
 
 ---
 
 ## 🔍 Validaciones y Profundización de Diseño (`docs/specs/validation/`)
-
-- [design_validation.md](file:///E:/GRAVITY/docs/specs/validation/design_validation.md): Auditoría de decisiones confirmadas vs abiertas y pilares.
-- [drone_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/drone_design_rules.md): Reglas del sistema de drones (Tríada Táctica, extensión permanente, recuperación por piezas y evolución por Generaciones).
-- [drone_resource_economy.md](file:///E:/GRAVITY/docs/specs/validation/drone_resource_economy.md): Economía de piezas, separación de recursos de evolución vs mantenimiento y anti-snowball.
-- [player_experience.md](file:///E:/GRAVITY/docs/specs/validation/player_experience.md): Definición de la experiencia emocional, UX y GRAVITY vs shooters tradicionales.
-- [match_flow_spec.md](file:///E:/GRAVITY/docs/specs/validation/match_flow_spec.md): Flujo completo de partida, mecanismos anti-camping y anti-snowball.
-- [operator_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/operator_design_rules.md): Reglas obligatorias para diseñar operadores futuros (Cuestionario de 5 preguntas).
-- [technical_requirements_preview.md](file:///E:/GRAVITY/docs/specs/validation/technical_requirements_preview.md): Vista previa de subsistemas técnicos requeridos a futuro.
-
----
-
-## 🏛️ Documento Maestro de Pilares
-- [design_pillars.md](file:///E:/GRAVITY/docs/specs/design_pillars.md): Los 5 pilares irrenunciables.
+- [design_validation.md](file:///E:/GRAVITY/docs/specs/validation/design_validation.md): Auditoría de pilares — Decisiones Confirmadas vs Abiertas.
+- [drone_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/drone_design_rules.md): Tríada Táctica, extensión permanente, Generaciones del Dron y sistema de recuperación.
+- [drone_resource_economy.md](file:///E:/GRAVITY/docs/specs/validation/drone_resource_economy.md): Economía de piezas por fase de partida, flujos de Mantenimiento vs Evolución.
+- [match_flow_spec.md](file:///E:/GRAVITY/docs/specs/validation/match_flow_spec.md): Flujo cronológico completo integrado con las 3 Generaciones, anti-camping y anti-snowball.
+- [player_experience.md](file:///E:/GRAVITY/docs/specs/validation/player_experience.md): Experiencia emocional, UX y GRAVITY vs shooters tradicionales.
+- [operator_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/operator_design_rules.md): Cuestionario Mandatory de 5 preguntas y anti-patrones de operadores.
+- [technical_requirements_preview.md](file:///E:/GRAVITY/docs/specs/validation/technical_requirements_preview.md): Vista previa de subsistemas técnicos futuros.
 
 ---
 
 ## 🏗️ Organización por Dominios Funcionales
 
 ### 🎮 1. Core Gameplay
-- `core/main_loop.md`: Ciclo de partida y máquina de estados global.
-- `core/controls.md`: Mapeo de entradas, esquemas de control y buffer de comandos.
-- `core/interaction.md`: Sistema genérico de interacción con entidades del mundo.
+- `core/core_game_loop.md`: Ciclo de partida en 4 fases.
+- `core/controls.md`: Mapeo de entradas y buffer de comandos.
+- `core/interaction.md`: Sistema genérico de interacción con el mundo.
 
 ### 🏃 2. Player
 - `player/movement.md`: Locomoción, físicas, inercia y colisiones.
@@ -51,12 +50,12 @@ Las SPECs son la Fuente Única de Verdad (SSOT) funcional del juego. Ningún mó
 - `drones/drone.md`: IA de asistencia, órdenes, batería y vinculación.
 
 ### 🗺️ 5. World
-- `world/map_design_guidelines.md`: Capas de movilidad, conductos de drones y Centros de Integración Tecnológica.
+- `world/map_design_guidelines.md`: Capas de movilidad, conductos, Centros de Integración y LoS.
 - `world/vision_cone.md`: Mecánica de cono de visión y Línea de Visión (LoS).
 - `world/hack.md`: Hackeo de terminales, puertas y dispositivos.
 
 ### 🏆 6. Match
-- `match/objective_system.md`: Fases de captura del Núcleo IA, Centros Tecnológicos y control territorial.
+- `match/objective_system.md`: Núcleo IA, Centros Tecnológicos y control territorial.
 - `match/matchmaking.md`: Lobbies, salas autoritativas y sesiones.
 
 ### 🖥️ 7. UI

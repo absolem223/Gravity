@@ -1,45 +1,80 @@
-# SPEC VALIDATION: DRONE RESOURCE ECONOMY — ECONOMÍA DE PIEZAS Y EVOLUCIÓN TECNOLÓGICA
+# SPEC VALIDATION: DRONE RESOURCE ECONOMY — REVISIÓN 4.0
 
-- **Estado**: Actualizado / Revisión 3.0 (Fase 0.5 — Game Architecture)
+- **Estado**: Actualizado / Revisión 4.0 (Fase 0.5 — Game Architecture)
 - **Ubicación**: `docs/specs/validation/drone_resource_economy.md`
 
 ---
 
-## 🎯 Separación Clave: Recursos de Evolución vs Recursos de Mantenimiento
+## 🎯 El Principio de la Economía de Recursos
 
-La economía de GRAVITY se articula en torno a dos flujos de recursos diferenciados para prevenir confusiones de diseño:
+La economía tecnológica de GRAVITY está diseñada para hacer que **el dominio del campo de batalla** — y no el conteo de bajas — sea la fuente principal de prosperidad tecnológica.
+
+---
+
+## 💰 Los Dos Flujos de Recursos
+
+La economía se articula en torno a dos flujos completamente distintos e incompatibles entre sí:
 
 ```
-                               ┌─────────────────────────────┐
-                               │  RECURSOS TECNOLÓGICOS     │
-                               └──────────────┬──────────────┘
-                                              │
-                    ┌─────────────────────────┴─────────────────────────┐
-                    ▼                                                   ▼
-┌──────────────────────────────────────┐            ┌──────────────────────────────────────┐
-│  1. RECURSOS DE MANTENIMIENTO        │            │  2. RECURSOS DE EVOLUCIÓN            │
-├──────────────────────────────────────┤            ├──────────────────────────────────────┤
-│ - Destino: Reparar Drones destruidos │            │ - Destino: Inversión para avanzar    │
-│   y sustituir módulos dañados.       │            │   de Generación 1 ➔ 2 ➔ 3.           │
-│ - Dónde: En el campo / Puntos de     │            │ - Dónde: Exclusivamente en Centros   │
-│   reabastecimiento ligeros.          │            │   de Integración Tecnológica.        │
-│ - Dinámica: Consumo táctico rápido.  │            │ - Dinámica: Consolidación permanente.│
-└──────────────────────────────────────┘            └──────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                    RECURSOS TECNOLÓGICOS DEL CAMPO               │
+└─────────────────────────────┬─────────────────────────────────────┘
+                              │
+          ┌───────────────────┴───────────────────┐
+          ▼                                       ▼
+┌──────────────────────────┐         ┌──────────────────────────────┐
+│  RECURSOS DE MANTENIMIENTO│         │  RECURSOS DE EVOLUCIÓN       │
+├──────────────────────────┤         ├──────────────────────────────┤
+│ Propósito:               │         │ Propósito:                   │
+│ Reparar drones destruidos │         │ Pagar el salto de Generación  │
+│ y reemplazar módulos.    │         │ (Gen 1→2 y Gen 2→3).         │
+│                          │         │                              │
+│ Fuentes:                 │         │ Fuentes:                     │
+│ - Chatarra de Wreck Sites │         │ - Nodos Tecnológicos del mapa│
+│ - Nodos ligeros del mapa  │         │ - Tecnología abandonada en   │
+│ - Infraestructura neutral │         │   sectores de alto riesgo    │
+│                          │         │                              │
+│ Dónde se usa:            │         │ Dónde se usa:                │
+│ Campo / Puntos ligeros    │         │ Exclusivamente en Centros de │
+│                          │         │ Integración Tecnológica      │
+│ Dinámica:                │         │                              │
+│ Consumo táctico rápido    │         │ Dinámica:                    │
+│ (emergencia inmediata)    │         │ Consolidación permanente     │
+└──────────────────────────┘         └──────────────────────────────┘
 ```
 
 ---
 
-## 🏢 Puntos de conflicto: Centros de Integración Tecnológica
+## ⏳ Economía por Fase de Partida
 
-Los **Centros de Integración Tecnológica** son infraestructuras neutras ubicadas en la geometría del mapa.
+### Fase Gen 1 (0:00 - 15:00 min): Economía de Supervivencia
+- **Recursos dominantes**: Chatarra ligera de Wreck Sites y nodos de acceso fácil.
+- **Prioridad de gasto**: Mantener los drones reparados y los módulos básicos activos.
+- **Conflicto principal**: Disputas por los primeros nodos de recursos entre escuadras que establecen rutas de cosecha.
 
-- Para invertir *Recursos de Evolución* y saltar de Generación 1 a Generación 2 (o de Gen 2 a Gen 3), el operador o su dron deben canalizar el proceso físicamente en una de estas estaciones.
-- **Riesgo Táctico**: La canalización emite firmas de energía detectables por los sensores enemigos. Detener un salto de Generación enemiga en un Centro de Integración es un objetivo de alta prioridad para la escuadra adversaria.
+### Fase Gen 2 (~15:00 - 30:00 min): Economía de Especialización
+- **Recursos dominantes**: Nodos tecnológicos de riesgo medio (ubicados en flancos del mapa).
+- **Prioridad de gasto**: Acumular *Recursos de Evolución* para canalizar en el Centro de Integración y activar la Doctrina.
+- **Conflicto principal**: Interceptar al equipo enemigo mientras canaliza en el Centro de Integración.
+
+### Fase Gen 3 (~30:00 min en adelante): Economía de Dominio
+- **Recursos dominantes**: Nodos avanzados en sectores de alto riesgo cerca del Núcleo IA.
+- **Prioridad de gasto**: Mantener la estación de Gen 3 bajo control y financiar la Operación del Núcleo.
+- **Conflicto principal**: La escuadra que controla la Estación de Gen 3 y el perímetro del Núcleo dicta el clímax de la partida.
 
 ---
 
-## 🛑 Anti-Snowballing y Rendimientos Decrecientes
+## 🛡️ Mecanismos Anti-Snowballing
 
-1. **Límite de Almacenamiento**: Cap de componentes portados por operador (100 unidades max).
-2. **Costo Escalado de Generaciones**: El salto de Gen 1 a Gen 2 requiere una inversión moderada; el salto a Gen 3 requiere una inversión masiva que exige controlar múltiples nodos del mapa.
-3. **Inmutabilidad del Avance**: La Generación alcanzada es permanente (no se pierde al morir). Esto garantiza que el equipo golpeado conserve su avance tecnológico y pueda reconstruir su presencia sin caer en una espiral de atraso insuperable.
+1. **Límite de Inventario (Cap)**: Cada operador porta un máximo de 100 unidades de componentes. Las piezas sobrantes se descartan, impidiendo que un equipo dominante acapare el mapa entero.
+2. **Rendimientos Decrecientes**: El coste de mejoras de módulo escala exponencialmente. La diferencia tecnológica entre un módulo de nivel 2 y uno de nivel 3 es marginal frente al enorme costo de recursos.
+3. **Pérdida por Incapacitación**: Un operador abatido suelta el 50% de sus componentes no procesados en el mapa. El equipo rival puede recuperarlos si controla el terreno.
+4. **Inmutabilidad de la Generación Alcanzada**: El equipo perdedor conserva su Generación aunque pierda operadores. Esto garantiza que la brecha no se vuelva insalvable.
+
+---
+
+## 🚫 Prevención del Kill Farming
+
+- Los kills de operadores enemigos otorgan una cantidad **mínima** de chatarra.
+- La **mayor fuente de recursos** proviene de los Nodos Tecnológicos del mapa.
+- Esto obliga a las escuadras a expandirse y disputar sectores del nivel en lugar de acampar en un pasillo buscando bajas.
