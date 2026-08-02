@@ -21,6 +21,7 @@ Las SPECs son la Fuente Única de Verdad (SSOT) funcional del juego. Ningún mó
 
 ## 🔍 Validaciones y Profundización de Diseño (`docs/specs/validation/`)
 - [design_validation.md](file:///E:/GRAVITY/docs/specs/validation/design_validation.md): Auditoría de pilares — Decisiones Confirmadas vs Abiertas.
+- [full_match_simulation.md](file:///E:/GRAVITY/docs/specs/validation/full_match_simulation.md): Simulación conceptual de partida completa (38 min, 4v4) con validación de pilares y detección de problemas.
 - [drone_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/drone_design_rules.md): Tríada Táctica, extensión permanente, Generaciones del Dron y sistema de recuperación.
 - [drone_resource_economy.md](file:///E:/GRAVITY/docs/specs/validation/drone_resource_economy.md): Economía de piezas por fase de partida, flujos de Mantenimiento vs Evolución.
 - [match_flow_spec.md](file:///E:/GRAVITY/docs/specs/validation/match_flow_spec.md): Flujo cronológico completo integrado con las 3 Generaciones, anti-camping y anti-snowball.
