@@ -1,6 +1,6 @@
-# SPEC: TECHNOLOGY GENERATION SYSTEM — SISTEMA DE GENERACIONES TECNOLÓGICAS
+# SPEC: TECHNOLOGY GENERATION SYSTEM — REVISIÓN 5.0: CANALIZACIÓN EN TRES FASES
 
-- **Estado**: Actualizado / Revisión 4.0 (Fase 0.5 — Game Architecture)
+- **Estado**: Actualizado / Revisión 5.0 (Fase 0.5 — Game Architecture)
 - **Dominio**: Progression & Tech Tree
 - **Ubicación**: `docs/specs/progression/technology_generation_system.md`
 
@@ -22,64 +22,80 @@ La Generación no se siente como "subir de nivel". Se siente como una consecuenc
 
 ---
 
-## 🏛️ Las 3 Generaciones Tecnológicas con Tiempos de Referencia
+## 🏛️ Las 3 Generaciones Tecnológicas
 
 ### GENERACIÓN 1 — Tecnología Base (0:00 a ~15:00 min)
 **Objetivo**: Crear la base estratégica de la escuadra.
-
-- Estado inicial de todos los operadores al comenzar la partida.
-- Drones estándar con capacidades básicas de escaneo.
-- Herramientas tecnológicas iniciales (sonar de corto alcance, hackeo simple).
-- Exploración de la Niebla de Guerra y triangulación de firmas del mapa.
-- Recolección de Recursos de Mantenimiento y primeras disputas territoriales por nodos.
+- Estado inicial al comenzar la partida.
+- Exploración de Niebla de Guerra, cosecha inicial de recursos.
 - **Sensación**: Incertidumbre, sigilo, reconocimiento y preparación.
 
----
-
 ### GENERACIÓN 2 — Especialización Tecnológica (~15:00 min en adelante)
-**Objetivo**: Convertir la doctrina elegida en una ventaja estratégica para la escuadra.
-
-- El operador selecciona **una Doctrina Tecnológica de forma permanente e irreversible**.
-- El Dron adopta el perfil especializado de la Doctrina elegida.
-- Aparecen capacidades tácticas profundas y diferenciadas.
-- **Sensación**: Especialización, fricción territorial intensa y choque de doctrinas opuestas.
+**Objetivo**: Convertir la doctrina elegida en ventaja estratégica para la escuadra.
+- Selección permanente de 1 Doctrina Tecnológica.
+- El Dron adopta el perfil especializado.
+- **Sensación**: Especialización, fricción territorial intensa, choque de doctrinas.
 
 #### Las 5 Doctrinas de Gen 2:
-1. **Reconocimiento**: Sonar de alta frecuencia, escaneo omnidireccional y filtrado térmico.
-2. **Defensa**: Proyección de micro-escudos y atenuación balística en el perímetro.
-3. **Soporte Logístico**: Campo de recarga de batería para drones aliados y enlace de componentes.
-4. **Asistencia Ofensiva**: *Smart Vectoring* y marcado de puntos débiles en armaduras.
+1. **Reconocimiento**: Sonar de alta frecuencia, filtrado térmico.
+2. **Defensa**: Proyección de micro-escudos, atenuación balística.
+3. **Soporte Logístico**: Recarga de batería para drones aliados, reparación remota.
+4. **Asistencia Ofensiva**: *Smart Vectoring*, marcado de puntos débiles.
 5. **Manipulación Tecnológica**: Hackeo remoto de terminales e inhabilitación de visores.
-
----
 
 ### GENERACIÓN 3 — Evolución Avanzada (~30:00 min en adelante)
 **Objetivo**: Representar superioridad tecnológica de escuadra — no mayor daño.
+- La Doctrina elegida en Gen 2 se profundiza.
+- Desbloqueo de **Efectos de Red** pasivos para toda la escuadra.
+- **Principio rector**: *Gen 3 amplía las opciones de la escuadra. No sustituye la necesidad de ejecutarlas.*
 
-- La Doctrina elegida en Gen 2 se profundiza radicalmente.
-- Desbloqueo de **Efectos de Red** que se propagan a toda la escuadra.
-- Mayor impacto en la Operación Tecnológica del Núcleo IA.
-- **Sensación**: Dominio tecnológico, tensión de clímax, operaciones cibernéticas avanzadas.
+#### Restricciones Permanentes de Gen 3:
+- Nunca otorga daño aumentado directo.
+- Los efectos de red se desactivan si el operador Gen 3 fuente es incapacitado.
+- Un equipo Gen 1 coordinado con buen terreno puede derrotar a un equipo Gen 3 disperso.
 
 #### Efectos de Red por Doctrina en Gen 3:
-- **Recon Gen 3** → *Radar Neuronal*: Transmite marcadores de posición enemiga en tiempo real a los visores de los 3 aliados.
-- **Defensa Gen 3** → *Perímetro Fortificado*: Los aliados dentro de 10 metros reciben resistencia balística adicional.
-- **Logística Gen 3** → *Overclock Energético*: Los drones de la escuadra consumen 30% menos de batería.
-- **Ofensiva Gen 3** → *Supresión Sincronizada*: El marcado de objetivos del dron amplía el cono de supresión de toda la escuadra.
+- **Recon Gen 3** → *Radar Neuronal*: Posiciones escaneadas por el Dron se transmiten en tiempo real a todos los aliados. Solo afecta a enemigos que el Dron ha escaneado activamente.
+- **Defensa Gen 3** → *Perímetro Fortificado*: Aliados a menos de 10 metros reciben resistencia balística adicional.
+- **Logística Gen 3** → *Overclock Energético*: Drones de la escuadra consumen 30% menos de batería.
+- **Ofensiva Gen 3** → *Supresión Sincronizada*: El marcado de A4 amplía el cono de supresión de toda la escuadra.
 - **Manipulación Gen 3** → *Reducción de Hackeo*: El tiempo de descarga del Núcleo IA se reduce para toda la escuadra.
 
 ---
 
 ## 🏢 Infraestructura Física: Centros de Integración Tecnológica
 
-La progresión tecnológica **no ocurre automáticamente**. Exige:
-1. Haber acumulado suficientes *Recursos de Evolución*.
-2. Acceder físicamente a un **Centro de Integración Tecnológica** en el mapa.
-3. Canalizar la síntesis durante 4 segundos (el operador o su dron emiten firma detectable).
+La progresión tecnológica **no ocurre automáticamente**. Exige acceso físico y canalización en **Centros de Integración Tecnológica**.
+
+### Sistema de Canalización en Tres Fases (Corrección 2 Post-Simulación)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ FASE 1 — PREPARACIÓN / CALENTAMIENTO (3 segundos)                  │
+│ El Centro emite firma DÉBIL de energía. Detectable a corta         │
+│ distancia. Sin movilidad reducida. El operador puede abortar.      │
+├─────────────────────────────────────────────────────────────────────┤
+│ FASE 2 — CANALIZACIÓN ACTIVA (6 segundos)                          │
+│ Firma FUERTE visible en el radar de toda la escuadra rival.        │
+│ Movilidad reducida (puede cubrirse, no correr). El Dron puede      │
+│ actuar libremente como guardián. ÚNICA VENTANA DE INTERRUPCIÓN.    │
+├─────────────────────────────────────────────────────────────────────┤
+│ FASE 3 — ESTABILIZACIÓN (2 segundos)                               │
+│ Generación consolidada. Ya no puede interrumpirse.                 │
+│ Firma se apaga. Módulo activado.                                   │
+└─────────────────────────────────────────────────────────────────────┘
+                             TOTAL: ~11 segundos
+```
+
+### Reglas de la Canalización:
+- La interrupción solo es posible durante la **Fase 2** (los 6 segundos centrales).
+- Abortar voluntariamente antes de Fase 3 devuelve el 80% de los Recursos de Evolución.
+- Ser incapacitado durante Fase 2 provoca la pérdida del 50% de recursos.
+- El Dron actúa libremente durante toda la canalización — es el guardián natural del operador vulnerable.
 
 ### Posicionamiento Estratégico en el Mapa:
-- Los Centros de Gen 2 están en los flancos medios del mapa (requieren avanzar del spawn).
-- La Estación de Gen 3 está en un sector de alto riesgo cercano al perímetro del Núcleo IA.
+- Centros de Gen 2: Ubicados en flancos medios (requieren abandonar el spawn).
+- Estación de Gen 3: En sector de alto riesgo, adyacente al perímetro del Núcleo IA.
 
 ---
 
@@ -87,21 +103,15 @@ La progresión tecnológica **no ocurre automáticamente**. Exige:
 
 | Flujo | Destino | Dónde se Usa |
 | :--- | :--- | :--- |
-| **Recursos de Mantenimiento** | Reparar drones destruidos, sustituir módulos dañados | Campo / Puntos de reabastecimiento ligeros |
+| **Recursos de Mantenimiento** | Reparar drones destruidos, sustituir módulos | Campo / Puntos de reabastecimiento ligeros |
 | **Recursos de Evolución** | Pagar el salto de Generación (1→2, 2→3) | Centros de Integración Tecnológica |
-
----
-
-## 🌐 Tecnología con Efecto de Red
-
-Los Efectos de Red de Gen 3 son **pasivos y automaticos**; benefician a la escuadra sin requerir activación manual, haciendo que la coordinación sea la consecuencia natural de alcanzar la Evolución Avanzada.
 
 ---
 
 ## ⚖️ Auditoría contra los 5 Pilares
 
-1. **Pilar 1 (Información)**: La elección de Doctrina en Gen 2 depende de leer la composición enemiga.
-2. **Pilar 2 (Nunca solo)**: Gen 3 fortalece la interdependencia de la escuadra vía Efectos de Red.
-3. **Pilar 3 (Núcleo IA)**: Los Centros de Integración de Gen 3 están cerca del perímetro del Núcleo, vinculando progresión y objetivo principal.
-4. **Pilar 4 (Terreno)**: Controlar físicamente los Centros Tecnológicos del mapa es el requisito para evolucionar.
-5. **Pilar 5 (Cooperación)**: Los Efectos de Red de Gen 3 solo alcanzan su máximo potencial con una escuadra coordinada y viva.
+1. **Pilar 1 (Información)**: La Fase 1 de canalización emite firma débil — quien tiene Recon activo la detecta antes que el rival.
+2. **Pilar 2 (Nunca solo)**: El operador en Fase 2 es vulnerable; el Dron libre y los aliados son su protección natural.
+3. **Pilar 3 (Núcleo IA)**: La Estación de Gen 3 está cerca del Núcleo — evolucionar exige presionar el mismo territorio que el objetivo principal.
+4. **Pilar 4 (Terreno)**: Controlar físicamente los Centros Tecnológicos es el requisito para evolucionar.
+5. **Pilar 5 (Cooperación)**: La canalización vulnerable exige escolta de escuadra — es una operación táctica de equipo, no individual.
