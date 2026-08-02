@@ -20,9 +20,10 @@ Las SPECs son la Fuente Única de Verdad (SSOT) funcional del juego. Ningún mó
 ---
 
 ## 🔍 Validaciones y Profundización de Diseño (`docs/specs/validation/`)
-- [design_validation.md](file:///E:/GRAVITY/docs/specs/validation/design_validation.md): Auditoría de pilares — Decisiones Confirmadas vs Abiertas. **Rev 5.0**
+- [design_validation.md](file:///E:/GRAVITY/docs/specs/validation/design_validation.md): Auditoría de pilares — Decisiones Confirmadas vs Abiertas. **Rev 6.0 — Cierre de Fase 0.5**
 - [full_match_simulation.md](file:///E:/GRAVITY/docs/specs/validation/full_match_simulation.md): Simulación conceptual de partida completa (38 min, 4v4) con validación de pilares y detección de problemas.
-- [sandbox_corrections_review.md](file:///E:/GRAVITY/docs/specs/validation/sandbox_corrections_review.md): 4 correcciones formalizadas post-simulación (persistencia del Núcleo, canalización 3 fases, Field Engineer activo, Gen 3 equilibrado).
+- [full_match_simulation_gen3.md](file:///E:/GRAVITY/docs/specs/validation/full_match_simulation_gen3.md): Simulación Gen 3 (43 min, 4v4) — Efectos de Red, interacción de Doctrinas y validación final de Pilares.
+- [sandbox_corrections_review.md](file:///E:/GRAVITY/docs/specs/validation/sandbox_corrections_review.md): 4 correcciones formalizadas post-simulación.
 - [drone_design_rules.md](file:///E:/GRAVITY/docs/specs/validation/drone_design_rules.md): Tríada Táctica, extensión permanente, Generaciones del Dron y sistema de recuperación.
 - [drone_resource_economy.md](file:///E:/GRAVITY/docs/specs/validation/drone_resource_economy.md): Economía de piezas por fase de partida, flujos de Mantenimiento vs Evolución.
 - [match_flow_spec.md](file:///E:/GRAVITY/docs/specs/validation/match_flow_spec.md): Flujo cronológico completo integrado con las 3 Generaciones, anti-camping y anti-snowball.
