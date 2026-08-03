@@ -38,6 +38,9 @@ Las SPECs son la Fuente Única de Verdad (SSOT) funcional del juego. Ningún mó
 - [vertical_slice_validation_plan.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_validation_plan.md): 12 preguntas de validación con criterios de aprobación/fallo y plantilla de playtest.
 - [vertical_slice_implementation_plan.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_implementation_plan.md): Plan de implementación con **alcance congelado** — 9 etapas ordenadas por dependencias.
 - [vertical_slice_success_criteria.md](file:///E:/GRAVITY/docs/specs/vertical_slice/vertical_slice_success_criteria.md): Contrato de evaluación — criterio principal, matriz de evidencia por pilar, 7 fallos críticos (FC-01 a FC-07) y límites prototipo/producto.
+- [local_coop_implementation_notes.md](file:///E:/GRAVITY/docs/specs/vertical_slice/local_coop_implementation_notes.md): Notas de implementación de multijugador local cooperativo.
+- [spatial_coop_test_results.md](file:///E:/GRAVITY/docs/specs/vertical_slice/spatial_coop_test_results.md): Resultados del test espacial de combate y coberturas (Etapa 3).
+- [drone_validation_test_results.md](file:///E:/GRAVITY/docs/specs/vertical_slice/drone_validation_test_results.md): Resultados de los 6 tests obligatorios de validación del Dron Gen 1 (Etapa 4).
 
 ---
 

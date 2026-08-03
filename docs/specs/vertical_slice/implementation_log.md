@@ -2,7 +2,7 @@
 
 - **Estado**: Activo — Fase 1: Vertical Slice Implementation
 - **Ubicación**: `docs/specs/vertical_slice/implementation_log.md`
-- **Versión**: 1.2
+- **Versión**: 1.3
 
 ---
 
@@ -29,59 +29,63 @@
 **Fecha**: 2026-08-02
 **Estado**: ✅ COMPLETADA Y VALIDADA
 
+---
+
+### 🟢 ETAPA 4 — Dron Gen 1 (Escorta, Estacionario, Piloto)
+
+**Fecha**: 2026-08-02
+**Estado**: ✅ COMPLETADA Y VALIDADA
+
 #### 1. Archivos Creados / Modificados
-- `game/modules/vision/line_of_sight.gd` (Nuevo): Módulo reutilizable de raycast para evaluación de línea de visión (LoS) y cálculo de mitigación de daño por cobertura (0% despejado, 50% cobertura baja, 100% cobertura total).
-- `game/modules/vision/vision_cone_3d.gd` (Nuevo): Componente modular de Cono de Visión 3D con alcance configurable (16m), ángulo FOV (90°) y escaneo de objetivos por LoS. Diseñado para ser consumido por Operadores, Drones (Gen 1) e IA.
-- `game/modules/vision/squad_vision_registry.gd` (Nuevo): Capa de datos para la visión compartida de escuadra. Agrega los conos de visión de todos los operadores y drones activos en un mapa de inteligencia unificado.
-- `game/modules/operator/operator_base.gd` (Actualizado): Integrado sistema de disparo hitscan (cadencia 0.25s, daño base 18.0), evaluación de daño con mitigación por cobertura, componente `VisionCone3D` e integración con `InputManager`.
-- `game/scripts/input_manager.gd` (Actualizado): Añadido método `is_action_pressed` y accesos de teclado fallback para disparo en los 4 slots de jugador.
-- `game/scripts/squad_hud.gd` & `game/scenes/squad_hud.tscn` (Actualizado): Incorporado resumen de inteligencia de escuadra (`TopMarginContainer/IntelLabel`) mostrando el total de objetivos detectados en tiempo real.
-- `game/scripts/sandbox_test_scene.gd` & `game/scenes/sandbox_test_scene.tscn` (Actualizado): Integrado `SquadVisionRegistry`, estructuras de cobertura baja (1.0m) y media (2.5m), y conexión de eventos de daño mitigado por cobertura.
-- `docs/specs/vertical_slice/spatial_coop_test_results.md` (Nuevo): Resultados documentados del Test de Cooperación Espacial (lectura de posiciones, reagrupación, coberturas y cámara).
+- `game/modules/drone/drone_base.gd` (Nuevo): Clase base modular del Dron, implementando modos Escorta, Estacionario y Piloto, drenaje de batería compartida, y destrucción con spawn de WreckSite.
+- `game/scenes/drone.tscn` (Nuevo): Escena del Dron con geometría esférica, colisión y componente `VisionCone3D` integrado.
+- `game/modules/resources/wreck_site.gd` (Nuevo): Clase para la persistencia visual y física de los restos de drones destruidos, con pulso de opacidad y timer de 90 segundos.
+- `game/scenes/wreck_site.tscn` (Nuevo): Escena del WreckSite 3D.
+- `game/modules/operator/operator_base.gd` (Actualizado): Integración permanente del Dron, control de modos tap/hold (tap = toggle Escorta/Estacionario, hold = Pilotar), batería compartida, e inactivación de locomoción en modo piloto.
+- `game/scripts/sandbox_test_scene.gd` & `game/scenes/sandbox_test_scene.tscn` (Actualizado): Incorporación de los Puntos de Síntesis (`SynthesisPoint1` y `SynthesisPoint2` en el grupo `synthesis_points`) para la reconstrucción de drones y actualización dinámica de los objetivos de seguimiento de la cámara en Modo Piloto.
+- `game/scripts/squad_hud.gd` (Actualizado): Añadida la batería y el estado del Dron (Escorta, Estacionario, Piloto, Drone Lost) a las tarjetas de estado de la escuadra.
+- `docs/specs/vertical_slice/drone_validation_test_results.md` (Nuevo): Resultados documentados de las 6 pruebas de validación obligatorias (TEST A a F).
 
 #### 2. Decisiones Técnicas Ejecutadas
-- **Hitscan Táctico con Mitigación por Cobertura**: En lugar de proyectiles lentos o balística compleja arcade, el disparo evalúa la presencia de cobertura en el punto de impacto. Si la trayectoria de los pies del objetivo está bloqueada pero el pecho es visible (cobertura baja de 1m), el daño recibido se reduce automáticamente al 50%.
-- **Cono de Visión Reutilizable (`VisionCone3D`)**: Diseñado como un componente `Node3D` autónomo. Se adjunta al operador en la Etapa 3 y podrá ser adjuntado directamente a los Drones en la Etapa 4 sin modificar su código.
-- **Registro Central de Inteligencia (`SquadVisionRegistry`)**: Provee la capa de datos subyacente para la Niebla de Guerra. La visión de cualquier operador o dron se comparte con toda la escuadra instantáneamente.
+- **Control Unificado de Entrada Tap/Hold**: Resolver dos modos de interacción con una sola tecla: un pulsado rápido (<0.35s) alterna entre el seguimiento (Escorta) y el anclaje (Estacionario), mientras que un pulsado largo (>0.35s) activa el Modo Piloto. Soltar la tecla devuelve el control instantáneamente.
+- **Batería Compartida y no Destructiva**: La batería compartida se drena a 0.5/s en Escorta, 1.0/s en Estacionario y 5.0/s en Piloto. Al llegar a 0.0 en Modo Piloto, el sistema fuerza la desconexión del enlace y devuelve el Dron a Modo Escorta sin destruirlo ni bloquear al operador.
+- **Transición Suave de Cámara**: El `CameraController` recibe el nodo del Dron como target de seguimiento en Modo Piloto de forma transparente, permitiendo que la cámara lerpee suavemente hacia la posición de exploración sin saltos bruscos.
 
 #### 3. Auditoría contra los 5 Pilares de GRAVITY
 
-| Pilar | Evaluación de la Etapa 3 |
+| Pilar | Evaluación de la Etapa 4 |
 | :--- | :--- |
-| **Pilar 1 (Información)** | El disparo a ciegas sin LoS es ineficaz. `VisionCone3D` y `SquadVisionRegistry` proveen la base donde la información precede a la acción. |
-| **Pilar 2 (Nunca solo)** | La visión de escuadra compartida consolida la interdependencia: lo que ve el Recon en un flanco aparece en el registro de la escuadra. |
-| **Pilar 3 (El Núcleo)** | El sistema de combate no altera el objetivo del Núcleo; el daño es una herramienta de control de área, no una métrica de victoria. |
-| **Pilar 4 (El Terreno decide)** | La cobertura del mapa otorga una reducción del 50% al 100% de daño de forma natural basada en la física de raycasts 3D. |
-| **Pilar 5 (Cooperación)** | La mitigación por cobertura exige flanqueo o fuego coordinado desde múltiples ángulos para eliminar a un objetivo a cubierto. |
+| **Pilar 1 (Información)** | El Dron es la fuente principal de inteligencia. Mandar el Dron a explorar en Modo Piloto o dejarlo como cámara estacionaria es el requisito previo para avanzar con seguridad. |
+| **Pilar 2 (Nunca solo)** | La pérdida del Dron desactiva la visión compartida y expone al operador. El Field Engineer y los Puntos de Síntesis se vuelven vitales para restaurar capacidades. |
+| **Pilar 3 (El Núcleo)** | El Dron en modo estacionario permite vigilar el perímetro del Núcleo IA de forma remota mientras la escuadra asegura los flancos. |
+| **Pilar 4 (El Terreno decide)** | El radio esférico pequeño (0.3m) del Dron en Modo Piloto permite atravesar conductos del mapa que son físicamente inaccesibles para los operadores. |
+| **Pilar 5 (Cooperación)** | Dos jugadores coordinando Drones estacionarios pueden cubrir múltiples líneas de visión, eliminando la necesidad de que la escuadra se divida físicamente. |
 
-#### 4. Verificación del Criterio DONE para Etapa 3
+#### 4. Verificación del Criterio DONE para Etapa 4
 
 | Criterio DONE | Estado | Evidencia |
 | :--- | :---: | :--- |
-| Disparo hitscan básico funcionando | ✅ | Integrated in `operator_base.gd` with 0.25s cooldown and base damage |
-| Coberturas mitigan daño naturalmente | ✅ | `LineOfSightQuery.check_cover_protection` reduce 50% en cobertura baja |
-| Cono de visión 3D modular funcionando | ✅ | `VisionCone3D` scans targets within 90° FOV and 16m range |
-| Raycast LoS reutilizable implementado | ✅ | `line_of_sight.gd` tested for obstacle detection and target height |
-| Capa de datos para Niebla de Guerra creada | ✅ | `squad_vision_registry.gd` aggregates squad targets into unified intel |
-| HUD muestra resumen de inteligencia | ✅ | `squad_hud.tscn` displays active targets in vision header |
-| Test de Cooperación Espacial ejecutado | ✅ | Documented in `spatial_coop_test_results.md` |
+| Dron permanente integrado | ✅ | Instanciado automáticamente al inicio en `operator_base.gd` |
+| Modo Escorta implementado | ✅ | El Dron sigue al operador con lerp suave y colisiones activas |
+| Modo Estacionario funcionando | ✅ | El Dron se ancla y mantiene su `VisionCone3D` independiente |
+| Modo Piloto con control directo activo | ✅ | Control directo vía hold del botón; el operador queda inmóvil y colisionable |
+| Transición suave de cámara en piloto | ✅ | `sandbox_test_scene.gd` actualiza los targets del `CameraController` |
+| Batería táctica compartida funcionando | ✅ | Drenaje diferenciado por modo; desconexión automática al llegar a 0.0 |
+| WreckSite y Punto de Síntesis integrados | ✅ | Spawnea al ser destruido; se regenera al entrar en zonas de síntesis |
+| Pruebas obligatorias documentadas | ✅ | Documentado en `drone_validation_test_results.md` |
 
 ---
 
-## ⚠️ ANÁLISIS DE RIESGOS PARA LA ETAPA 4 (Dron Gen 1)
+## ⚠️ ANÁLISIS DE RIESGOS PARA LA ETAPA 5 (Mapa SANDBOX-01 con 3 Rutas y Conductos)
 
-1. **Jerarquía de Transformaciones del Dron en Modo Piloto**:
-   - *Riesgo*: Al pasar a Modo Piloto, el control del `CameraController` debe alternar suavemente entre la posición del operador y la posición del Dron sin causar desorientación en la cámara isométrica.
-   - *Mitigación*: `camera_controller.gd` ya soporta `add_target()` y `remove_target()` genéricos. El Dron en Modo Piloto se añadirá como target prioritario de la cámara.
+1. **Colisiones complejas en conductos estrechos**:
+   - *Riesgo*: Si el Dron entra en un conducto sumergido o de techo, la física de Godot podría atascarlo si la geometría del mapa no es limpia.
+   - *Mitigación*: Asegurar que el radio de colisión del Dron (0.3m) sea significativamente menor que la apertura de los conductos (al menos 1.0m) y deshabilitar colisiones contra capas de decoración.
 
-2. **Drenaje de Batería Táctica Compartida**:
-   - *Riesgo*: El consumo de batería en Modo Piloto debe balancearse para que el operador no quede varado a mitad del mapa sin energía para el exoesqueleto.
-   - *Mitigación*: Implementar advertencias sonoras y visuales cuando la batería caiga al 25% antes de forzar el desacople del Modo Piloto.
-
-3. **Vulnerabilidad del Cuerpo Inmóvil**:
-   - *Riesgo*: El cuerpo del operador en Modo Piloto debe permanecer colisionable y vulnerable al fuego enemigo.
-   - *Mitigación*: `OperatorBase` mantiene `is_piloting_drone = true` procesando desaceleración y daño normal mientras el jugador pilota el Dron.
+2. **Detección pasiva en conductos**:
+   - *Riesgo*: De acuerdo a la validación Gen 3, los conductos no deben ser puntos ciegos perfectos de exploración.
+   - *Mitigación*: Implementar triggers de volumen en los conductos que emitan vibraciones o alertas en la UI cuando un Dron los atraviese.
 
 ---
 
-## 🟢 ETAPA 3 COMPLETADA — LISTO PARA ETAPA 4 (Dron Gen 1: Escolta, Estacionario, Piloto)
+## 🟢 ETAPA 4 COMPLETADA — LISTO PARA ETAPA 5 (Geometría del Mapa SANDBOX-01)

@@ -1,0 +1,27 @@
+[gd_scene load_steps=5 format=3 uid="uid://cdronbase001"]
+
+[ext_resource type="Script" path="res://modules/drone/drone_base.gd" id="1_drone_script"]
+[ext_resource type="Script" path="res://modules/vision/vision_cone_3d.gd" id="2_vision_script"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_drone"]
+radius = 0.3
+
+[sub_resource type="SphereMesh" id="SphereMesh_drone"]
+radius = 0.3
+height = 0.6
+
+[node name="Drone" type="CharacterBody3D"]
+collision_layer = 2
+collision_mask = 3
+script = ExtResource("1_drone_script")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("SphereShape3D_drone")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("SphereMesh_drone")
+
+[node name="VisionCone3D" type="Node3D" parent="."]
+script = ExtResource("2_vision_script")
+view_range = 14.0
+field_of_view_degrees = 90.0

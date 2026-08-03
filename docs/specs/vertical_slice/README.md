@@ -44,6 +44,12 @@ Contrato de evaluación pre-implementación: criterio principal de éxito, matri
 ### [local_coop_implementation_notes.md](file:///E:/GRAVITY/docs/specs/vertical_slice/local_coop_implementation_notes.md)
 Notas de implementación del sistema cooperativo local: arquitectura `PlayerInputProfile`, `PlayerManager`, badges `Label3D`, alertas `[SEPARATED]` y resultados de los tests de cámara A, B y C.
 
+### [spatial_coop_test_results.md](file:///E:/GRAVITY/docs/specs/vertical_slice/spatial_coop_test_results.md)
+Resultados documentados del Test de Cooperación Espacial (lectura de posiciones, coberturas y legibilidad de cámara).
+
+### [drone_validation_test_results.md](file:///E:/GRAVITY/docs/specs/vertical_slice/drone_validation_test_results.md)
+Resultados de las 6 pruebas de validación obligatorias del Dron Gen 1: Escorta, Estacionario, Piloto, Destrucción, Reconstrucción e Inteligencia Compartida.
+
 ---
 
 ## 🔴 Decisión Técnica Prioritaria

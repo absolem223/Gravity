@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3 uid="uid://csandboxtest001"]
+[gd_scene load_steps=18 format=3 uid="uid://csandboxtest001"]
 
 [ext_resource type="Script" path="res://scripts/sandbox_test_scene.gd" id="1_scene_script"]
 
@@ -43,6 +43,12 @@ size = Vector3(3, 2.5, 3)
 
 [sub_resource type="BoxMesh" id="BoxMesh_med_cover"]
 size = Vector3(3, 2.5, 3)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_synth"]
+size = Vector3(4, 1, 4)
+
+[sub_resource type="BoxMesh" id="BoxMesh_synth"]
+size = Vector3(4, 0.1, 4)
 
 [node name="SandboxTestScene" type="Node3D"]
 script = ExtResource("1_scene_script")
@@ -112,3 +118,21 @@ shape = SubResource("BoxShape3D_med_cover")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/MezzanineElevated"]
 mesh = SubResource("BoxMesh_med_cover")
+
+[node name="SynthesisPoint1" type="Area3D" parent="MapGeometry" groups=["synthesis_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12, 0.05, 5)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/SynthesisPoint1"]
+shape = SubResource("BoxShape3D_synth")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/SynthesisPoint1"]
+mesh = SubResource("BoxMesh_synth")
+
+[node name="SynthesisPoint2" type="Area3D" parent="MapGeometry" groups=["synthesis_points"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 0.05, 5)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/SynthesisPoint2"]
+shape = SubResource("BoxShape3D_synth")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/SynthesisPoint2"]
+mesh = SubResource("BoxMesh_synth")

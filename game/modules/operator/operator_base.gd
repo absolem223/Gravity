@@ -1,7 +1,7 @@
 # operator_base.gd
 # Technical Rationale: Base class for all 4 operator prototypes.
 # Implements CharacterBody3D locomotion, 8-direction movement, orientation, health, overhead squad badge,
-# hitscan combat with cover damage mitigation, VisionCone3D, and squad vision integration.
+# hitscan combat with cover damage mitigation, VisionCone3D, permanent Drone, and shared tactical battery.
 # Adheres to ADR-0001 (GDScript 2.x Strict Typing).
 
 class_name OperatorBase
@@ -12,6 +12,7 @@ signal health_changed(current_hp: float, max_hp: float)
 signal operator_incapacitated(p_id: int)
 signal weapon_fired(origin: Vector3, direction: Vector3)
 signal damage_dealt(target: OperatorBase, damage: float, mitigated_by_cover: bool)
+signal drone_status_changed(p_id: int, has_drone: bool, mode: String)
 
 ## Player Slot ID (1 to 4)
 @export_range(1, 4) var player_id: int = 1:
@@ -32,9 +33,18 @@ signal damage_dealt(target: OperatorBase, damage: float, mitigated_by_cover: boo
 
 ## Combat & Firing Parameters
 @export var base_damage: float = 18.0
-@export var fire_rate: float = 0.25 # Seconds between shots (4 shots/sec)
+@export var fire_rate: float = 0.25
 @export var weapon_range: float = 20.0
-@export_flags_3d_physics var combat_collision_mask: int = 1 # Environment + Bodies
+@export_flags_3d_physics var combat_collision_mask: int = 1
+
+## Permanent Drone Integration
+@export var drone_scene: PackedScene = preload("res://scenes/drone.tscn")
+var drone: DroneBase = null
+var has_drone_active: bool = false
+
+## Shared Tactical Battery (0.0 to 100.0)
+var battery_max: float = 100.0
+var battery_current: float = 100.0
 
 ## Current health points
 var health_current: float = 100.0
@@ -46,6 +56,8 @@ var is_separated: bool = false
 
 ## Timers
 var _fire_cooldown: float = 0.0
+var _mode_button_press_duration: float = 0.0
+var _is_pressing_mode_button: bool = false
 
 ## Child Components
 @onready var _mesh_instance: MeshInstance3D = $MeshInstance3D if has_node("MeshInstance3D") else null
@@ -76,12 +88,27 @@ func _ready() -> void:
 	_setup_vision_cone()
 	_update_player_color()
 	_update_overhead_badge()
+	
+	# Spawn permanent Drone at launch
+	call_deferred("spawn_drone")
 
 func _physics_process(delta: float) -> void:
 	if _fire_cooldown > 0.0:
 		_fire_cooldown -= delta
 
-	if is_incapacitated or is_piloting_drone:
+	# Slowly recharge battery when drone is destroyed or inactive
+	if not has_drone_active or drone == null:
+		battery_current = minf(battery_max, battery_current + (3.0 * delta))
+
+	if is_incapacitated:
+		_apply_deceleration(delta)
+		move_and_slide()
+		return
+
+	# Handle Drone Mode inputs (Escort/Stationary/Pilot logic)
+	_process_drone_mode_inputs(delta)
+
+	if is_piloting_drone:
 		_apply_deceleration(delta)
 		move_and_slide()
 		return
@@ -90,16 +117,16 @@ func _physics_process(delta: float) -> void:
 	_process_locomotion(move_vec, delta)
 	move_and_slide()
 
-	# Process Combat Input
+	# Process Combat Input (Disabled in pilot mode)
 	if _is_firing_input_active() and _fire_cooldown <= 0.0:
 		_execute_tactical_shot()
 
-## Initializes and configures the attached VisionCone3D node
+## Initializes the vision cone
 func _setup_vision_cone() -> void:
 	if vision_cone == null:
 		vision_cone = VisionCone3D.new()
 		vision_cone.name = "VisionCone3D"
-		vision_cone.position = Vector3(0.0, 1.2, 0.0) # Eye level
+		vision_cone.position = Vector3(0.0, 1.2, 0.0)
 		vision_cone.view_range = 16.0
 		vision_cone.field_of_view_degrees = 90.0
 		add_child(vision_cone)
@@ -117,13 +144,105 @@ func _setup_overhead_badge() -> void:
 		_overhead_label.outline_render_priority = 1
 		add_child(_overhead_label)
 
+## Spawns the permanent tactical Drone (Gen 1)
+func spawn_drone() -> void:
+	if drone_scene == null or has_drone_active:
+		return
+
+	var drone_instance: DroneBase = drone_scene.instantiate() as DroneBase
+	if drone_instance != null:
+		drone_instance.operator = self
+		drone_instance.position = global_position + Vector3(0.0, 1.6, 1.0)
+		drone_instance.battery_current = battery_current
+		drone_instance.battery_max = battery_max
+		get_parent().add_child(drone_instance)
+		
+		drone = drone_instance
+		has_drone_active = true
+		
+		# Register drone vision cone to squad vision registry
+		var registry_nodes: Array[Node] = get_tree().get_nodes_in_group("squad_vision_registry")
+		if not registry_nodes.is_empty():
+			var reg: SquadVisionRegistry = registry_nodes[0] as SquadVisionRegistry
+			if reg != null and drone.vision_cone != null:
+				reg.register_provider(drone.vision_cone)
+
+		_update_overhead_badge()
+		drone_status_changed.emit(player_id, true, "ESCORT")
+
+## Callback when Drone is destroyed
+func notify_drone_destroyed() -> void:
+	# Unregister vision cone from squad registry
+	var registry_nodes: Array[Node] = get_tree().get_nodes_in_group("squad_vision_registry")
+	if not registry_nodes.is_empty():
+		var reg: SquadVisionRegistry = registry_nodes[0] as SquadVisionRegistry
+		if reg != null and drone != null and drone.vision_cone != null:
+			reg.unregister_provider(drone.vision_cone)
+
+	drone = null
+	has_drone_active = false
+	is_separated = false
+	_update_overhead_badge()
+	drone_status_changed.emit(player_id, false, "DESTROYED")
+
+## Performs Drone synthesis/reconstruction
+func rebuild_drone() -> void:
+	if not has_drone_active:
+		spawn_drone()
+
+## Taps and holds input processing for Drone Mode control
+func _process_drone_mode_inputs(delta: float) -> void:
+	if drone == null or not has_drone_active:
+		return
+
+	# Synchronize battery values with drone
+	drone.battery_current = battery_current
+	battery_current = drone.battery_current
+
+	var mode_pressed: bool = false
+	if _input_manager != null:
+		mode_pressed = _input_manager.is_action_pressed(player_id, "drone_mode")
+	else:
+		mode_pressed = Input.is_action_pressed("p%d_drone_mode" % player_id) or (player_id == 1 and Input.is_key_pressed(KEY_Q))
+
+	if mode_pressed:
+		if not _is_pressing_mode_button:
+			_is_pressing_mode_button = true
+			_mode_button_press_duration = 0.0
+		
+		_mode_button_press_duration += delta
+		
+		# If button is held down for more than 0.35 seconds, enter Pilot Mode
+		if _mode_button_press_duration > 0.35 and drone.current_mode != DroneBase.DroneMode.PILOT:
+			drone.set_mode(DroneBase.DroneMode.PILOT)
+			drone_status_changed.emit(player_id, true, "PILOT")
+	else:
+		if _is_pressing_mode_button:
+			_is_pressing_mode_button = false
+			# If it was a quick tap, toggle between Escort and Stationary
+			if _mode_button_press_duration <= 0.35:
+				if drone.current_mode == DroneBase.DroneMode.ESCORT:
+					drone.set_mode(DroneBase.DroneMode.STATIONARY)
+					drone_status_changed.emit(player_id, true, "STATIONARY")
+				else:
+					drone.set_mode(DroneBase.DroneMode.ESCORT)
+					drone_status_changed.emit(player_id, true, "ESCORT")
+			else:
+				# Releasing hold returns to Escort Mode
+				if drone.current_mode == DroneBase.DroneMode.PILOT:
+					drone.set_mode(DroneBase.DroneMode.ESCORT)
+					drone_status_changed.emit(player_id, true, "ESCORT")
+
 ## Updates overhead label text and color
 func _update_overhead_badge() -> void:
 	if _overhead_label == null or player_id < 1 or player_id > 4:
 		return
 		
 	var label_text: String = ROLE_LABELS[player_id - 1]
-	if is_separated:
+	if not has_drone_active:
+		label_text += " [DRONE LOST]"
+		_overhead_label.modulate = Color(0.9, 0.2, 0.2) # Highlight lost status
+	elif is_separated:
 		label_text += " [SEPARATED]"
 		_overhead_label.modulate = Color(1.0, 0.4, 0.2)
 	elif is_incapacitated:
@@ -136,6 +255,11 @@ func _update_overhead_badge() -> void:
 
 ## Updates separation status relative to squad centroid
 func update_squad_separation(centroid: Vector3) -> void:
+	# If drone is lost, we don't display separation warnings (drone is not present)
+	if not has_drone_active:
+		is_separated = false
+		return
+		
 	var dist: float = global_position.distance_to(centroid)
 	var newly_separated: bool = dist > separation_warning_distance
 	
@@ -153,14 +277,12 @@ func _is_firing_input_active() -> bool:
 func _execute_tactical_shot() -> void:
 	_fire_cooldown = fire_rate
 	
-	# Forward direction vector based on Y rotation
 	var forward_dir: Vector3 = Vector3(-sin(rotation.y), 0.0, -cos(rotation.y)).normalized()
 	var eye_pos: Vector3 = global_position + Vector3(0.0, 1.2, 0.0)
 	var target_end_pos: Vector3 = eye_pos + (forward_dir * weapon_range)
 	
 	weapon_fired.emit(eye_pos, forward_dir)
 	
-	# Exclude self from raycast
 	var exclude_list: Array[RID] = [get_rid()]
 	var los_res: LineOfSightQuery.LoSResult = LineOfSightQuery.test_los(
 		self,
@@ -182,7 +304,6 @@ func _apply_mitigated_damage(target_op: OperatorBase, attacker_eye_pos: Vector3)
 	var target_chest: Vector3 = target_op.global_position + Vector3(0.0, 1.2, 0.0)
 	var target_feet: Vector3 = target_op.global_position + Vector3(0.0, 0.1, 0.0)
 	
-	# Evaluate cover protection (0.0 = clear, 0.5 = low cover, 1.0 = full cover)
 	var cover_protection: float = LineOfSightQuery.check_cover_protection(
 		self,
 		attacker_eye_pos,
@@ -258,6 +379,10 @@ func _incapacitate() -> void:
 	is_incapacitated = true
 	_update_overhead_badge()
 	operator_incapacitated.emit(player_id)
+	
+	# If operator is downed, force drone mode exit from pilot
+	if drone != null and drone.current_mode == DroneBase.DroneMode.PILOT:
+		drone.set_mode(DroneBase.DroneMode.ESCORT)
 
 ## Restores health or revives operator
 func revive(restore_hp_ratio: float = 0.5) -> void:

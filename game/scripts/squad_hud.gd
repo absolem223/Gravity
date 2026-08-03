@@ -1,6 +1,7 @@
 # squad_hud.gd
 # Technical Rationale: Local cooperative tactical HUD showing squad status cards (P1-P4) and shared squad intel summary.
-# Displays HP, slot color, placeholder role, device status, distance from centroid, and squad target detection count.
+# Displays HP, slot color, placeholder role, device status, distance from centroid, drone status, battery percentage,
+# and squad target detection count.
 # Adheres to ADR-0001 (GDScript 2.x Strict Typing).
 
 class_name SquadHUD
@@ -64,16 +65,16 @@ func _build_player_cards() -> void:
 	for p_id: int in range(1, 5):
 		var card: PanelContainer = PanelContainer.new()
 		card.name = "PlayerCard_P%d" % p_id
-		card.custom_minimum_size = Vector2(210, 80)
+		card.custom_minimum_size = Vector2(240, 85)
 		
 		var style: StyleBoxFlat = StyleBoxFlat.new()
 		style.bg_color = Color(0.08, 0.09, 0.12, 0.85)
 		style.border_color = SLOT_COLORS[p_id - 1]
 		style.set_border_width_all(2)
 		style.set_corner_radius_all(6)
-		style.content_margin_left = 10
+		style.content_margin_left = 12
 		style.content_margin_top = 8
-		style.content_margin_right = 10
+		style.content_margin_right = 12
 		style.content_margin_bottom = 8
 		card.add_theme_stylebox_override("panel", style)
 
@@ -96,11 +97,11 @@ func _build_player_cards() -> void:
 		hp_bar.show_percentage = false
 		vbox.add_child(hp_bar)
 
-		# Sub-info: Device & Distance from Centroid
+		# Sub-info: Device, Drone Mode, Distance & Shared Battery
 		var info_label: Label = Label.new()
 		info_label.name = "InfoLabel"
-		info_label.text = "Device: Keyboard | Distance: 0m"
-		info_label.add_theme_font_size_override("font_size", 11)
+		info_label.text = "Device: Keyboard | Status: ESCORT | Dist: 0m | BAT: 100%"
+		info_label.add_theme_font_size_override("font_size", 10)
 		info_label.add_theme_color_override("font_color", Color(0.7, 0.75, 0.8))
 		vbox.add_child(info_label)
 
@@ -108,7 +109,7 @@ func _build_player_cards() -> void:
 		cards_container.add_child(card)
 		_player_cards[p_id] = card
 
-## Updates HP, device connection, distance labels, and squad vision summary
+## Updates HP, device connection, distance labels, drone states, battery, and squad vision summary
 func _update_hud_state() -> void:
 	if player_manager == null:
 		return
@@ -142,13 +143,24 @@ func _update_hud_state() -> void:
 					if prof != null:
 						dev_name = prof.get_device_name()
 				
-				var status_str: String = "ACTIVE"
+				# Get drone active mode status
+				var status_str: String = "ESCORT"
 				if op.is_incapacitated:
 					status_str = "DOWN"
+				elif not op.has_drone_active:
+					status_str = "DRONE_LOST"
 				elif op.is_separated:
 					status_str = "SEPARATED"
+				elif op.drone != null:
+					match op.drone.current_mode:
+						DroneBase.DroneMode.ESCORT:
+							status_str = "ESCORT"
+						DroneBase.DroneMode.STATIONARY:
+							status_str = "STATIONARY"
+						DroneBase.DroneMode.PILOT:
+							status_str = "PILOT"
 				
-				info_label.text = "%s | %s | Dist: %.1fm" % [dev_name, status_str, dist]
+				info_label.text = "%s | %s | %.1fm | BAT: %d%%" % [dev_name, status_str, dist, int(op.battery_current)]
 		else:
 			card.visible = false
 
