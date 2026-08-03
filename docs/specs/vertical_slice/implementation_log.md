@@ -2,7 +2,7 @@
 
 - **Estado**: Activo — Fase 1: Vertical Slice Implementation
 - **Ubicación**: `docs/specs/vertical_slice/implementation_log.md`
-- **Versión**: 1.4
+- **Versión**: 1.7
 
 ---
 
@@ -11,87 +11,103 @@
 ---
 
 ### 🟢 ETAPA 1 — Setup Técnico + Cámara + Movimiento Base
-
 **Fecha**: 2026-08-02
 **Estado**: ✅ COMPLETADA Y VALIDADA
 
 ---
 
 ### 🟢 ETAPA 2 — Input Cooperativo Local + Identidad de Escuadra
-
 **Fecha**: 2026-08-02
 **Estado**: ✅ COMPLETADA Y VALIDADA
 
 ---
 
 ### 🟢 ETAPA 3 — Operador Base + Combate Básico + Coberturas + Cono de Visión
-
 **Fecha**: 2026-08-02
 **Estado**: ✅ COMPLETADA Y VALIDADA
 
 ---
 
 ### 🟢 ETAPA 4 — Dron Gen 1 (Escorta, Estacionario, Piloto)
-
 **Fecha**: 2026-08-02
 **Estado**: ✅ COMPLETADA Y VALIDADA
 
 ---
 
 ### 🟢 ETAPA 5 — Mapa SANDBOX-01
+**Fecha**: 2026-08-02
+**Estado**: ✅ COMPLETADA Y VALIDADA
 
+---
+
+### 🟢 ETAPA 6 — Núcleo IA Funcional
 **Fecha**: 2026-08-02
 **Estado**: ✅ COMPLETADA Y VALIDADA
 
 #### 1. Archivos Creados / Modificados
-- `game/scenes/sandbox_test_scene.tscn` (Modificado): Reconstruido con la geometría oficial de SANDBOX-01 (rutas izquierda, central y derecha, pasarelas elevadas, rampas, coberturas de 3 niveles y conductos estrechos para drones).
-- `docs/specs/vertical_slice/sandbox01_validation_results.md` (Nuevo): Documentación detallada de decisiones de diseño del mapa, riesgos, soluciones y pruebas de navegación.
-- `docs/specs/vertical_slice/README.md` (Modificado): Actualizado con la referencia a `sandbox01_validation_results.md`.
-- `docs/specs/README.md` (Modificado): Actualizado con la referencia a `sandbox01_validation_results.md`.
+- `game/modules/ai_core/ai_core.gd` (Nuevo): Orquestador raíz que compone HackController + CoreCaptureZone + CoreStatusDisplay.
+- `game/modules/ai_core/hack_controller.gd` (Nuevo): Máquina de estados (IDLE/HACKING/CONTESTED/DEGRADED/CAPTURED) y motor de progreso.
+- `game/modules/ai_core/core_capture_zone.gd` (Nuevo): Area3D física para detección de operadores por equipo.
+- `game/modules/ai_core/core_status_display.gd` (Nuevo): HUD del Core con parpadeo y alertas visuales.
+- `game/scripts/sandbox_test_scene.gd` (Modificado): Instanciación y señales del Núcleo.
+- `game/scripts/squad_hud.gd` (Modificado): Integración de CoreStrip en el HUD principal.
+- `docs/specs/vertical_slice/core_system_validation.md` (Nuevo): Validación completa del Core.
 
 #### 2. Decisiones Técnicas Ejecutadas
-- **Limitación Física del Operador frente a Conductos**: Diseñado un conducto con dimensiones físicas de 0.8m x 0.8m. Al tener el operador un radio de colisión de 0.4m (ancho 0.8m), la fricción con las paredes le impide pasar de forma natural, mientras que el Dron (radio 0.3m, ancho 0.6m) vuela a través sin restricciones físicas.
-- **Rampa Inclinada de Acceso**: La rampa de la plataforma elevada de la ruta derecha cuenta con una inclinación suave para validar que los raycasts de `LineOfSightQuery` sigan calculando correctamente las mitidades de cobertura en desniveles.
-- **Ubicación Estratégica de Síntesis**: Posicionados los Puntos de Síntesis en los extremos del mapa central (X=-21, X=21), forzando una decisión de retirada que saca temporalmente al operador del frente.
-
-#### 3. Auditoría contra los 5 Pilares de GRAVITY
-
-| Pilar | Evaluación de la Etapa 5 |
-| :--- | :--- |
-| **Pilar 1 (Información)** | Las tres rutas (especialmente la central abierta y los recovecos de la izquierda) exigen exploración por Dron antes de cruzar los chokepoints. |
-| **Pilar 2 (Nunca solo)** | La pasarela elevada de la Ruta Derecha permite que un aliado cubra a otro que avanza por la peligrosa Ruta Central. |
-| **Pilar 3 (El Núcleo)** | La geometría del mapa canaliza todas las rutas hacia la plataforma del Norte Central donde se ubica la base del Núcleo IA. |
-| **Pilar 4 (El Terreno decide)** | La elevación otorga ventaja de visibilidad para supresión, y la Ruta Izquierda ofrece cobertura densa a costa de velocidad. |
-| **Pilar 5 (Cooperación)** | Un operador aislado en la Ruta Central es fácilmente flanqueado por enemigos en la plataforma elevada de la derecha. |
-
-#### 4. Verificación del Criterio DONE para Etapa 5
-
-| Criterio DONE | Estado | Evidencia |
-| :--- | :---: | :--- |
-| Tres rutas claramente diferenciadas | ✅ | Ruta Izquierda (cerrada), Central (abierta/peligrosa), Derecha (plataforma elevada + rampa) |
-| Coberturas bajas, medias y altas físicas | ✅ | Baja (1m), Media (2m) y Alta (4m) integradas |
-| Zonas elevadas con rampas integradas | ✅ | Plataforma a +1.5m con rampa inclinada |
-| Conductos funcionales para drones | ✅ | `DroneConduit_Left` de 0.8m de ancho transitable por Drones |
-| Cámara y zoom estables en desniveles | ✅ | `CameraController` testeado en dispersión máxima de la escuadra |
-| VisionCone3D validado en rampas | ✅ | Escaneo y LoS correctos en desniveles y rampas de la Ruta Derecha |
-| Coberturas funcionan correctamente | ✅ | Mitigación del 50% al 100% de daño validada por física 3D |
-| Dron funcional en todo el mapa | ✅ | Modos Escorta, Estacionario y Piloto testeados en conductos y pasarelas |
-| Ubicación definitiva del Núcleo | ✅ | Plataforma del Norte Central definida |
-| Synthesis Points ubicados | ✅ | SynthesisPoint1 y 2 en X=-21 y X=21 |
-| Playtests de la etapa documentados | ✅ | Registrado en `sandbox01_validation_results.md` |
+- **Velocidad de Hackeo Fija por Equipo**: El hackeo no aumenta su velocidad con más operadores presentes en la zona. Esto promueve el Pilar 5, haciendo que los aliados extra se concentren en cubrir las rutas.
+- **Transición a DEGRADED sin reinicio instantáneo**: Si el equipo abandona la zona, el progreso decae a razón de -10% cada 30 segundos, permitiendo retomar el progreso si se regresa rápido.
 
 ---
 
-## ⚠️ ANÁLISIS DE RIESGOS PARA LA ETAPA 6 (Núcleo IA)
+### 🟢 ETAPA 7 — Recursos Básicos + Wreck Salvage + Economía Mínima
+**Fecha**: 2026-08-02
+**Estado**: ✅ COMPLETADA Y VALIDADA
 
-1. **Estado Contestado con Cobertura Perimetral**:
-   - *Riesgo*: Si el perímetro del Núcleo tiene demasiada cobertura alta, los atacantes podrían esconderse y mantener la barra congelada infinitamente sin combate activo.
-   - *Mitigación*: La zona perimetral del Núcleo en `SANDBOX-01` se ha diseñado abierta por los laterales, con cobertura baja (1m) en el centro que mitiga parcialmente pero no bloquea LoS de forma total.
+#### 1. Archivos Creados / Modificados
+- `game/modules/resources/resource_manager.gd` (Nuevo): Administrador y registry central de pickups.
+- `game/modules/resources/resource_inventory.gd` (Nuevo): Inventario por operador con límite de capacidad (100).
+- `game/modules/resources/resource_pickup.gd` (Nuevo): Pickup físico Area3D con mesh pulsante y label 3D.
+- `game/modules/resources/wreck_salvage.gd` (Nuevo): Extiende WreckSite para generar pickups al interactuar (salvage).
+- `game/modules/operator/operator_base.gd` (Modificado): Integración de inventario y API `collect_resource()`.
+- `game/modules/drone/drone_base.gd` (Modificado): Spawnea WreckSalvage en lugar de WreckSite básico al destruirse.
+- `game/scripts/squad_hud.gd` (Modificado): ComponentsLabel en las tarjetas del HUD de escuadra.
+- `game/scripts/sandbox_test_scene.gd` (Modificado): InstanciaResourceManager y pickups/wrecks iniciales en SANDBOX-01.
+- `docs/specs/vertical_slice/resource_system_validation.md` (Nuevo): Playtests A-F y auditoría de pilares.
 
-2. **Degradación Visual en HUD**:
-   - *Riesgo*: Al entrar en degradación la barra del Núcleo, los jugadores alejados podrían no notar la caída del progreso si el feedback visual de la UI es muy estático.
-   - *Mitigación*: Implementar un parpadeo de color en la barra de progreso del HUD del `SquadHUD` cuando el estado pase a `DEGRADATION`.
+#### 2. Decisiones Técnicas Ejecutadas
+- **División de Rendimiento en 2 Pickups**: Al salvar un wreck, se generan dos pickups esparcidos para incentivar movimiento e interacción física.
+- **Color de HUD Dinámico**: ComponentsLabel cambia de verde a amarillo según la capacidad ocupada del inventario.
 
 ---
 
-## 🟢 ETAPA 5 COMPLETADA — LISTO PARA ETAPA 6 (Implementación del Núcleo IA)
+### 🟢 ETAPA 8 — Operadores Prototipo (Recon, Vanguard, Disruptor, Engineer)
+**Fecha**: 2026-08-02
+**Estado**: ✅ COMPLETADA Y VALIDADA
+
+#### 1. Archivos Creados / Modificados
+- `game/modules/operators/operator_role.gd` (Nuevo): Clase base abstracta de roles tácticos (pasivos + habilidad).
+- `game/modules/operators/recon_operator.gd` (Nuevo): Rol Recon (visión mejorada + ping temporal de enemigos).
+- `game/modules/operators/vanguard_operator.gd` (Nuevo): Rol Vanguard (+HP, mitigación de daño y habilidad active FORTIFY).
+- `game/modules/operators/disruptor_operator.gd` (Nuevo): Rol Disruptor (EMP Pulse que desactiva drones en rango).
+- `game/modules/operators/engineer_operator.gd` (Nuevo): Rol Engineer ( FIELD REPAIR consumiendo componentes, cap. inventario 150 y yield bonus).
+- `game/modules/operator/operator_base.gd` (Modificado): Propiedades de rol, asignación, mitigación e inputs de habilidad.
+- `game/modules/resources/wreck_salvage.gd` (Modificado): Aplica el yield bonus pasivo del Engineer (1.5x) si es el recolector.
+- `game/scripts/input_manager.gd` (Modificado): Mapeo de la acción de habilidad activa 'ability'.
+- `game/scripts/squad_hud.gd` (Modificado): Muestra la habilidad, cooldown y estado actual de cada rol en el HUD.
+- `docs/specs/vertical_slice/operator_roles_validation.md` (Nuevo): Pruebas de validación A-F y auditoría de pilares de rol.
+
+#### 2. Decisiones Técnicas Ejecutadas
+- **Composición Dinámica sobre Herencia Profunda**: Todos los roles se asocian por composición como nodos hijos de OperatorBase. Evita romper la API existente y permite reasignación en caliente.
+- **Rendimiento Mejorado de Salvaje para el Ingeniero**: Engineer obtiene un 1.5x en yield de componentes, acelerando la economía del equipo.
+
+---
+
+## ⚠️ ANÁLISIS DE RIESGOS PARA LA ETAPA 9 (IA Defensora)
+
+1. **VisionCone3D y SquadVisionRegistry con Múltiples Enemigos**:
+   - *Riesgo*: Al introducir múltiples patrullas enemigas, la frecuencia de escaneo (0.1s base / 0.05s Recon) puede causar spikes de CPU si hay demasiados raycasts concurrentes.
+   - *Mitigación*: Implementar throttling dinámico en el scan_interval de los enemigos según su distancia al operador más cercano.
+
+2. **Drones Enemigos y EMP del Disruptor**:
+   - *Riesgo*: El EMP del Disruptor actualmente desactiva drones. Con drones enemigos patrullando, el EMP debe distinguir su equipo (team_id) para no desactivar drones aliados accidentalmente, o bien ser un efecto de área total neutral.
+   - *Mitigación*: En la Etapa 9, definir la lógica de team_id en el EMP del Disruptor para filtrar por equipo atacante/defensor.

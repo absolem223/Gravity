@@ -54,6 +54,12 @@ var health_current: float = 100.0
 ## Resource Inventory (Etapa 7) — composed at _ready
 var inventory: ResourceInventory = null
 
+## Active Operator Role doctrine (Etapa 8 — composition)
+var role: OperatorRole = null
+
+## Damage mitigation factor (0.0 = none, 0.2 = 20%, etc.)
+var damage_mitigation: float = 0.0
+
 ## Team assignment (default 0 = attackers; Etapa 9 will use 1 for defenders)
 var team_id: int = 0
 
@@ -97,9 +103,34 @@ func _ready() -> void:
 	_update_player_color()
 	_update_overhead_badge()
 	_setup_inventory()
+	_setup_default_role()
 	
 	# Spawn permanent Drone at launch
 	call_deferred("spawn_drone")
+
+## Dynamically assigns a role doctrine to the operator (Etapa 8 — composition)
+func assign_role(new_role: OperatorRole) -> void:
+	if role != null:
+		role.queue_free()
+	role = new_role
+	if role != null:
+		if not role.is_inside_tree():
+			add_child(role)
+		role.assign_to(self)
+		_update_overhead_badge()
+
+## Configures the default role doctrine based on local Player ID (1: Recon, 2: Vanguard, 3: Disruptor, 4: Engineer)
+func _setup_default_role() -> void:
+	if role != null:
+		return
+	var new_role: OperatorRole = null
+	match player_id:
+		1: new_role = ReconOperator.new()
+		2: new_role = VanguardOperator.new()
+		3: new_role = DisruptorOperator.new()
+		4: new_role = EngineerOperator.new()
+	if new_role != null:
+		assign_role(new_role)
 
 ## Initialises the per-operator ResourceInventory
 func _setup_inventory() -> void:
@@ -124,6 +155,11 @@ func _physics_process(delta: float) -> void:
 		_apply_deceleration(delta)
 		move_and_slide()
 		return
+
+	# Handle active ability input check (Etapa 8)
+	if _is_ability_input_just_pressed():
+		if role != null:
+			role.try_activate_ability()
 
 	# Handle Drone Mode inputs (Escort/Stationary/Pilot logic)
 	_process_drone_mode_inputs(delta)
@@ -378,7 +414,6 @@ func _apply_deceleration(delta: float) -> void:
 	velocity.z = move_toward(velocity.z, 0.0, deceleration * delta)
 	if not is_on_floor():
 		velocity.y -= 9.8 * delta
-
 ## Assigns InputManager reference
 func set_input_manager(input_mgr: InputManager) -> void:
 	_input_manager = input_mgr
@@ -387,8 +422,9 @@ func set_input_manager(input_mgr: InputManager) -> void:
 func take_damage(amount: float) -> void:
 	if is_incapacitated:
 		return
-		
-	health_current = maxf(0.0, health_current - amount)
+	
+	var mitigated_amt: float = amount * (1.0 - damage_mitigation)
+	health_current = maxf(0.0, health_current - mitigated_amt)
 	health_changed.emit(health_current, health_max)
 	
 	if health_current <= 0.0:
@@ -407,11 +443,19 @@ func _incapacitate() -> void:
 ## Restores health or revives operator
 func revive(restore_hp_ratio: float = 0.5) -> void:
 	is_incapacitated = false
-	health_current = health_max * clampf(restore_hp_ratio, 0.1, 1.0)
+	var ratio: float = restore_hp_ratio
+	if role is VanguardOperator:
+		ratio = 0.70 # Passive durability override
+	health_current = health_max * clampf(ratio, 0.1, 1.0)
 	_update_overhead_badge()
 	health_changed.emit(health_current, health_max)
 
-## Updates placeholder mesh material color according to Player ID
+## Checks if the active ability input is pressed this frame
+func _is_ability_input_just_pressed() -> bool:
+	if _input_manager != null:
+		return _input_manager.is_action_just_pressed(player_id, "ability")
+	return Input.is_action_just_pressed("p%d_ability" % player_id) or (player_id == 1 and Input.is_key_pressed(KEY_F))
+
 func _update_player_color() -> void:
 	if not is_inside_tree() or _mesh_instance == null:
 		return

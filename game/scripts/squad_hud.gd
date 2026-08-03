@@ -150,6 +150,14 @@ func _build_player_cards() -> void:
 		comp_label.add_theme_color_override("font_color", Color(0.3, 0.9, 0.55))
 		vbox.add_child(comp_label)
 
+		# ABILITY label (Etapa 8 — operator roles)
+		var abil_label: Label = Label.new()
+		abil_label.name = "AbilityLabel"
+		abil_label.text = "ABIL: READY"
+		abil_label.add_theme_font_size_override("font_size", 10)
+		abil_label.add_theme_color_override("font_color", Color(0.2, 0.65, 1.0))
+		vbox.add_child(abil_label)
+
 		card.add_child(vbox)
 		cards_container.add_child(card)
 		_player_cards[p_id] = card
@@ -216,6 +224,28 @@ func _update_hud_state() -> void:
 				## Color shifts toward yellow as inventory fills
 				var fill_ratio: float = float(comp_amt) / float(max(comp_cap, 1))
 				comp_label.add_theme_color_override("font_color", Color(0.3 + fill_ratio * 0.6, 0.9 - fill_ratio * 0.3, 0.55 - fill_ratio * 0.4))
+
+			## Update ABILITY label (Etapa 8)
+			var abil_label: Label = card.find_child("AbilityLabel", true, false) as Label
+			if abil_label != null:
+				if op.role != null:
+					var r: OperatorRole = op.role
+					var abil_name: String = ""
+					match op.player_id:
+						1: abil_name = "MARK TARGETS"
+						2: abil_name = "FORTIFY"
+						3: abil_name = "EMP PULSE"
+						4: abil_name = "FIELD REPAIR"
+					
+					if r.is_ability_ready():
+						abil_label.text = "%s ◈ %s: READY" % [r.icon_placeholder, abil_name]
+						abil_label.add_theme_color_override("font_color", Color(0.2, 0.85, 1.0))
+					else:
+						abil_label.text = "%s ◈ %s: %.1fs" % [r.icon_placeholder, abil_name, r.get_cooldown_remaining()]
+						abil_label.add_theme_color_override("font_color", Color(0.9, 0.3, 0.3))
+				else:
+					abil_label.text = "ABIL: NONE"
+					abil_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
 		else:
 			card.visible = false
 

@@ -82,18 +82,25 @@ func _on_salvage_zone_entered(body: Node3D) -> void:
 
 		_salvaged = true
 
-		## Spawn resource pickups at wreck position (slightly scattered)
-		_spawn_salvage_pickups(op.player_id)
+		# Determine yield based on role passive bonus (Engineer gets 1.5x yield)
+		var yield_multiplier: float = 1.0
+		if op.role != null and op.role.has_method("get_salvage_bonus"):
+			yield_multiplier = op.role.get_salvage_bonus()
+		
+		var final_yield: int = int(float(components_per_salvage) * yield_multiplier)
 
-		salvaged.emit(op.player_id, components_per_salvage)
-		print("[WreckSalvage] P%d salvaged wreck — spawned %d components" % [op.player_id, components_per_salvage])
+		## Spawn resource pickups at wreck position (slightly scattered)
+		_spawn_salvage_pickups(op.player_id, final_yield)
+
+		salvaged.emit(op.player_id, final_yield)
+		print("[WreckSalvage] P%d salvaged wreck — spawned %d components (yield mult: %.1f)" % [op.player_id, final_yield, yield_multiplier])
 
 		## Destroy the wreck immediately after salvage
 		dissipated.emit()
 		queue_free()
 
 ## Spawns resource pickups around the wreck position
-func _spawn_salvage_pickups(salvager_id: int) -> void:
+func _spawn_salvage_pickups(salvager_id: int, yield_amount: int) -> void:
 	var parent: Node = get_parent()
 	if parent == null:
 		return
@@ -101,14 +108,14 @@ func _spawn_salvage_pickups(salvager_id: int) -> void:
 	## Split components into 2 pickups for interesting collection gameplay
 	var pickup_a: ResourcePickup = ResourcePickup.new()
 	pickup_a.resource_type = ResourceInventory.TYPE_MAINTENANCE
-	pickup_a.amount = components_per_salvage / 2
+	pickup_a.amount = yield_amount / 2
 	pickup_a.global_position = global_position + Vector3(-0.6, 0.3, 0.0)
 	parent.add_child(pickup_a)
 
 	var pickup_b: ResourcePickup = ResourcePickup.new()
 	pickup_b.resource_type = ResourceInventory.TYPE_MAINTENANCE
-	pickup_b.amount = components_per_salvage - (components_per_salvage / 2)
+	pickup_b.amount = yield_amount - (yield_amount / 2)
 	pickup_b.global_position = global_position + Vector3(0.6, 0.3, 0.0)
 	parent.add_child(pickup_b)
 
-	print("[WreckSalvage] Spawned 2 salvage pickups for P%d" % salvager_id)
+	print("[WreckSalvage] Spawned 2 salvage pickups for P%d (total %d)" % [salvager_id, yield_amount])

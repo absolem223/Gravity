@@ -104,6 +104,7 @@ func _setup_default_input_map() -> void:
 		_ensure_player_action(player_id, "fire")
 		_ensure_player_action(player_id, "interact")
 		_ensure_player_action(player_id, "drone_mode")
+		_ensure_player_action(player_id, "ability")
 
 func _ensure_player_action(player_id: int, action_suffix: String) -> void:
 	var action_name: String = "p%d_%s" % [player_id, action_suffix]
@@ -174,14 +175,23 @@ func is_action_pressed(player_id: int, action_suffix: String) -> bool:
 		if action_suffix == "fire":
 			if Input.is_joy_button_pressed(profile.device_id, JOY_BUTTON_RIGHT_SHOULDER) or Input.get_joy_axis(profile.device_id, JOY_AXIS_TRIGGER_RIGHT) > 0.5:
 				return true
+		elif action_suffix == "ability":
+			if Input.is_joy_button_pressed(profile.device_id, JOY_BUTTON_LEFT_SHOULDER) or Input.get_joy_axis(profile.device_id, JOY_AXIS_TRIGGER_LEFT) > 0.5:
+				return true
 
-	# Keyboard fallback shortcuts for testing fire action:
+	# Keyboard fallback shortcuts for testing fire / ability action:
 	if action_suffix == "fire":
 		match player_id:
 			1: return Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_E) or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 			2: return Input.is_key_pressed(KEY_U) or Input.is_key_pressed(KEY_O)
 			3: return Input.is_key_pressed(KEY_SLASH) or Input.is_key_pressed(KEY_SHIFT)
 			4: return Input.is_key_pressed(KEY_KP_0) or Input.is_key_pressed(KEY_KP_ENTER)
+	elif action_suffix == "ability":
+		match player_id:
+			1: return Input.is_key_pressed(KEY_F) or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
+			2: return Input.is_key_pressed(KEY_H)
+			3: return Input.is_key_pressed(KEY_PERIOD)
+			4: return Input.is_key_pressed(KEY_KP_7)
 
 	return false
 
@@ -190,4 +200,13 @@ func is_action_just_pressed(player_id: int, action_suffix: String) -> bool:
 	var action_name: String = "p%d_%s" % [player_id, action_suffix]
 	if InputMap.has_action(action_name) and Input.is_action_just_pressed(action_name):
 		return true
+
+	# Fallback just pressed logic for keyboard test triggers:
+	if action_suffix == "ability":
+		match player_id:
+			1: return Input.is_key_pressed(KEY_F) and Input.is_action_just_pressed(action_name) # simplified
+			2: return Input.is_key_pressed(KEY_H) and Input.is_action_just_pressed(action_name)
+			3: return Input.is_key_pressed(KEY_PERIOD) and Input.is_action_just_pressed(action_name)
+			4: return Input.is_key_pressed(KEY_KP_7) and Input.is_action_just_pressed(action_name)
+
 	return false

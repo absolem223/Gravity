@@ -53,6 +53,15 @@ Resultados de las 6 pruebas de validación obligatorias del Dron Gen 1: Escorta,
 ### [sandbox01_validation_results.md](file:///E:/GRAVITY/docs/specs/vertical_slice/sandbox01_validation_results.md)
 Decisiones de diseño de SANDBOX-01, 3 rutas diferenciadas, conductos de drones, posición del Núcleo, Puntos de Síntesis y resultados de validación (Etapa 5).
 
+### [core_system_validation.md](file:///E:/GRAVITY/docs/specs/vertical_slice/core_system_validation.md)
+Lógica del Núcleo IA, máquina de estados IDLE/HACKING/CONTESTED/DEGRADED/CAPTURED, HUD e integración de señales (Etapa 6).
+
+### [resource_system_validation.md](file:///E:/GRAVITY/docs/specs/vertical_slice/resource_system_validation.md)
+Recogida de recursos, inventario por operador, salvaje de Wreck y HUD de componentes (Etapa 7).
+
+### [operator_roles_validation.md](file:///E:/GRAVITY/docs/specs/vertical_slice/operator_roles_validation.md)
+Composición de roles de operador: Recon, Vanguard, Disruptor y Engineer. Modificaciones pasivas y habilidades activas con cooldown (Etapa 8).
+
 ---
 
 ## 🔴 Decisión Técnica Prioritaria
