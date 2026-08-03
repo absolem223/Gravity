@@ -1,6 +1,6 @@
 # squad_hud.gd
-# Technical Rationale: Local cooperative HUD showing squad status cards (P1-P4).
-# Displays HP, slot color, placeholder role, device status, and distance from squad centroid.
+# Technical Rationale: Local cooperative tactical HUD showing squad status cards (P1-P4) and shared squad intel summary.
+# Displays HP, slot color, placeholder role, device status, distance from centroid, and squad target detection count.
 # Adheres to ADR-0001 (GDScript 2.x Strict Typing).
 
 class_name SquadHUD
@@ -12,8 +12,14 @@ var player_manager: PlayerManager = null
 ## Reference to InputManager node
 var input_manager: InputManager = null
 
+## Reference to SquadVisionRegistry node
+var squad_vision_registry: SquadVisionRegistry = null
+
 ## Container for player status cards
 @onready var cards_container: HBoxContainer = $MarginContainer/CardsContainer if has_node("MarginContainer/CardsContainer") else null
+
+## Intel header label
+@onready var intel_label: Label = $TopMarginContainer/IntelLabel if has_node("TopMarginContainer/IntelLabel") else null
 
 ## Array of created card nodes
 var _player_cards: Dictionary = {}
@@ -40,9 +46,10 @@ func _process(_delta: float) -> void:
 	_update_hud_state()
 
 ## Sets up HUD references and constructs status cards
-func setup_hud(p_mgr: PlayerManager, in_mgr: InputManager) -> void:
+func setup_hud(p_mgr: PlayerManager, in_mgr: InputManager, vision_reg: SquadVisionRegistry = null) -> void:
 	player_manager = p_mgr
 	input_manager = in_mgr
+	squad_vision_registry = vision_reg
 	_build_player_cards()
 
 ## Programmatically constructs 4 player status cards in bottom HUD
@@ -59,7 +66,6 @@ func _build_player_cards() -> void:
 		card.name = "PlayerCard_P%d" % p_id
 		card.custom_minimum_size = Vector2(210, 80)
 		
-		# Apply slot border style
 		var style: StyleBoxFlat = StyleBoxFlat.new()
 		style.bg_color = Color(0.08, 0.09, 0.12, 0.85)
 		style.border_color = SLOT_COLORS[p_id - 1]
@@ -102,7 +108,7 @@ func _build_player_cards() -> void:
 		cards_container.add_child(card)
 		_player_cards[p_id] = card
 
-## Updates HP, device connection, and distance labels dynamically
+## Updates HP, device connection, distance labels, and squad vision summary
 func _update_hud_state() -> void:
 	if player_manager == null:
 		return
@@ -122,7 +128,6 @@ func _update_hud_state() -> void:
 				hp_bar.value = op.health_current
 				hp_bar.max_value = op.health_max
 				
-				# Dim HP bar if incapacitated
 				if op.is_incapacitated:
 					hp_bar.modulate = Color(0.5, 0.2, 0.2)
 				else:
@@ -140,8 +145,14 @@ func _update_hud_state() -> void:
 				var status_str: String = "ACTIVE"
 				if op.is_incapacitated:
 					status_str = "DOWN"
+				elif op.is_separated:
+					status_str = "SEPARATED"
 				
 				info_label.text = "%s | %s | Dist: %.1fm" % [dev_name, status_str, dist]
 		else:
-			# Hide card if player slot is inactive (e.g. 2-player session)
 			card.visible = false
+
+	# Update Top Intel Summary
+	if intel_label != null and squad_vision_registry != null:
+		var target_count: int = squad_vision_registry.get_all_squad_detected_targets().size()
+		intel_label.text = "SQUAD INTEL: %d TARGETS IN VISION" % target_count

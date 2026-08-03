@@ -1,6 +1,7 @@
 # operator_base.gd
 # Technical Rationale: Base class for all 4 operator prototypes.
-# Implements CharacterBody3D locomotion, 8-direction movement, orientation, health, overhead squad badge, and distance tracking.
+# Implements CharacterBody3D locomotion, 8-direction movement, orientation, health, overhead squad badge,
+# hitscan combat with cover damage mitigation, VisionCone3D, and squad vision integration.
 # Adheres to ADR-0001 (GDScript 2.x Strict Typing).
 
 class_name OperatorBase
@@ -9,6 +10,8 @@ extends CharacterBody3D
 ## Signals
 signal health_changed(current_hp: float, max_hp: float)
 signal operator_incapacitated(p_id: int)
+signal weapon_fired(origin: Vector3, direction: Vector3)
+signal damage_dealt(target: OperatorBase, damage: float, mitigated_by_cover: bool)
 
 ## Player Slot ID (1 to 4)
 @export_range(1, 4) var player_id: int = 1:
@@ -17,40 +20,36 @@ signal operator_incapacitated(p_id: int)
 		_update_player_color()
 		_update_overhead_badge()
 
-## Maximum movement speed in meters/second
+## Locomotion Parameters
 @export var move_speed: float = 6.5
-
-## Acceleration rate when starting movement
 @export var acceleration: float = 26.0
-
-## Deceleration rate when stopping
 @export var deceleration: float = 32.0
-
-## Smooth rotation speed towards direction of motion (rad/sec)
 @export var rotation_speed: float = 14.0
 
-## Maximum health points
+## Health & Survival Parameters
 @export var health_max: float = 100.0
-
-## Distance threshold from squad centroid to trigger "SEPARATED" warning (meters)
 @export var separation_warning_distance: float = 12.0
+
+## Combat & Firing Parameters
+@export var base_damage: float = 18.0
+@export var fire_rate: float = 0.25 # Seconds between shots (4 shots/sec)
+@export var weapon_range: float = 20.0
+@export_flags_3d_physics var combat_collision_mask: int = 1 # Environment + Bodies
 
 ## Current health points
 var health_current: float = 100.0
 
-## State flag for incapacitation
+## State Flags
 var is_incapacitated: bool = false
-
-## State flag when controlling Drone in Pilot Mode
 var is_piloting_drone: bool = false
-
-## Is currently separated from squad centroid
 var is_separated: bool = false
 
-## Reference to MeshInstance3D for visual placeholder coloring
-@onready var _mesh_instance: MeshInstance3D = $MeshInstance3D if has_node("MeshInstance3D") else null
+## Timers
+var _fire_cooldown: float = 0.0
 
-## Reference to Label3D for overhead squad identification badge
+## Child Components
+@onready var _mesh_instance: MeshInstance3D = $MeshInstance3D if has_node("MeshInstance3D") else null
+@onready var vision_cone: VisionCone3D = $VisionCone3D if has_node("VisionCone3D") else null
 var _overhead_label: Label3D = null
 
 ## Reference to InputManager node
@@ -74,10 +73,14 @@ func _ready() -> void:
 	add_to_group("players")
 	health_current = health_max
 	_setup_overhead_badge()
+	_setup_vision_cone()
 	_update_player_color()
 	_update_overhead_badge()
 
 func _physics_process(delta: float) -> void:
+	if _fire_cooldown > 0.0:
+		_fire_cooldown -= delta
+
 	if is_incapacitated or is_piloting_drone:
 		_apply_deceleration(delta)
 		move_and_slide()
@@ -87,6 +90,20 @@ func _physics_process(delta: float) -> void:
 	_process_locomotion(move_vec, delta)
 	move_and_slide()
 
+	# Process Combat Input
+	if _is_firing_input_active() and _fire_cooldown <= 0.0:
+		_execute_tactical_shot()
+
+## Initializes and configures the attached VisionCone3D node
+func _setup_vision_cone() -> void:
+	if vision_cone == null:
+		vision_cone = VisionCone3D.new()
+		vision_cone.name = "VisionCone3D"
+		vision_cone.position = Vector3(0.0, 1.2, 0.0) # Eye level
+		vision_cone.view_range = 16.0
+		vision_cone.field_of_view_degrees = 90.0
+		add_child(vision_cone)
+
 ## Creates 3D overhead badge for squad identification
 func _setup_overhead_badge() -> void:
 	if _overhead_label == null:
@@ -94,7 +111,7 @@ func _setup_overhead_badge() -> void:
 		_overhead_label.name = "OverheadBadge"
 		_overhead_label.position = Vector3(0.0, 2.2, 0.0)
 		_overhead_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		_overhead_label.no_depth_test = true # Visible through walls for squad legibility
+		_overhead_label.no_depth_test = true
 		_overhead_label.font_size = 28
 		_overhead_label.outline_size = 8
 		_overhead_label.outline_render_priority = 1
@@ -108,7 +125,7 @@ func _update_overhead_badge() -> void:
 	var label_text: String = ROLE_LABELS[player_id - 1]
 	if is_separated:
 		label_text += " [SEPARATED]"
-		_overhead_label.modulate = Color(1.0, 0.4, 0.2) # Warning orange
+		_overhead_label.modulate = Color(1.0, 0.4, 0.2)
 	elif is_incapacitated:
 		label_text += " [DOWN]"
 		_overhead_label.modulate = Color(0.6, 0.6, 0.6)
@@ -125,6 +142,61 @@ func update_squad_separation(centroid: Vector3) -> void:
 	if newly_separated != is_separated:
 		is_separated = newly_separated
 		_update_overhead_badge()
+
+## Checks if fire button is currently pressed for this player
+func _is_firing_input_active() -> bool:
+	if _input_manager != null:
+		return _input_manager.is_action_pressed(player_id, "fire")
+	return Input.is_action_pressed("p%d_fire" % player_id) or (player_id == 1 and Input.is_key_pressed(KEY_SPACE))
+
+## Executes a hitscan shot with cover damage mitigation and LoS evaluation
+func _execute_tactical_shot() -> void:
+	_fire_cooldown = fire_rate
+	
+	# Forward direction vector based on Y rotation
+	var forward_dir: Vector3 = Vector3(-sin(rotation.y), 0.0, -cos(rotation.y)).normalized()
+	var eye_pos: Vector3 = global_position + Vector3(0.0, 1.2, 0.0)
+	var target_end_pos: Vector3 = eye_pos + (forward_dir * weapon_range)
+	
+	weapon_fired.emit(eye_pos, forward_dir)
+	
+	# Exclude self from raycast
+	var exclude_list: Array[RID] = [get_rid()]
+	var los_res: LineOfSightQuery.LoSResult = LineOfSightQuery.test_los(
+		self,
+		eye_pos,
+		target_end_pos,
+		exclude_list,
+		combat_collision_mask
+	)
+
+	if los_res.hit_collider != null:
+		var hit_target: Object = los_res.hit_collider
+		if hit_target is OperatorBase and hit_target != self:
+			var target_op: OperatorBase = hit_target as OperatorBase
+			if not target_op.is_incapacitated:
+				_apply_mitigated_damage(target_op, eye_pos)
+
+## Calculates cover protection and applies damage to hit operator
+func _apply_mitigated_damage(target_op: OperatorBase, attacker_eye_pos: Vector3) -> void:
+	var target_chest: Vector3 = target_op.global_position + Vector3(0.0, 1.2, 0.0)
+	var target_feet: Vector3 = target_op.global_position + Vector3(0.0, 0.1, 0.0)
+	
+	# Evaluate cover protection (0.0 = clear, 0.5 = low cover, 1.0 = full cover)
+	var cover_protection: float = LineOfSightQuery.check_cover_protection(
+		self,
+		attacker_eye_pos,
+		target_chest,
+		target_feet,
+		[get_rid()]
+	)
+	
+	var is_mitigated: bool = cover_protection > 0.0
+	var final_damage: float = base_damage * (1.0 - cover_protection)
+	
+	if final_damage > 0.0:
+		target_op.take_damage(final_damage)
+		damage_dealt.emit(target_op, final_damage, is_mitigated)
 
 ## Obtains movement direction from InputManager or Direct Input fallback
 func _get_input_direction() -> Vector2:

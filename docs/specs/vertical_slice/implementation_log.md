@@ -2,7 +2,7 @@
 
 - **Estado**: Activo — Fase 1: Vertical Slice Implementation
 - **Ubicación**: `docs/specs/vertical_slice/implementation_log.md`
-- **Versión**: 1.1
+- **Versión**: 1.2
 
 ---
 
@@ -15,15 +15,6 @@
 **Fecha**: 2026-08-02
 **Estado**: ✅ COMPLETADA Y VALIDADA
 
-#### Archivos Creados / Modificados
-- `game/project.godot`
-- `game/scripts/input_manager.gd`
-- `game/scripts/camera_controller.gd`
-- `game/modules/operator/operator_base.gd`
-- `game/scenes/operator_placeholder.tscn`
-- `game/scripts/sandbox_test_scene.gd`
-- `game/scenes/sandbox_test_scene.tscn`
-
 ---
 
 ### 🟢 ETAPA 2 — Input Cooperativo Local + Identidad de Escuadra
@@ -31,42 +22,66 @@
 **Fecha**: 2026-08-02
 **Estado**: ✅ COMPLETADA Y VALIDADA
 
+---
+
+### 🟢 ETAPA 3 — Operador Base + Combate Básico + Coberturas + Cono de Visión
+
+**Fecha**: 2026-08-02
+**Estado**: ✅ COMPLETADA Y VALIDADA
+
 #### 1. Archivos Creados / Modificados
-- `game/scripts/input_manager.gd` (Actualizado): Implementada la clase interna `PlayerInputProfile` con tipo de dispositivo, estado de conexión, soporte de hotplugging para gamepads y fallback de teclado para 4 slots.
-- `game/scripts/player_manager.gd` (Nuevo): Gestor del ciclo de vida de la escuadra (2 a 4 jugadores). Spawnea, despawnea y mantiene la lista de operadores activos. Calcula el centroide 3D de la escuadra.
-- `game/scripts/squad_hud.gd` (Nuevo): Interfaz HUD cooperativa local. Construye dinámicamente 4 tarjetas de estado con HP, nombre de rol, dispositivo asignado, estado (`ACTIVE` / `DOWN` / `SEPARATED`) y distancia en metros.
-- `game/scenes/squad_hud.tscn` (Nuevo): Escena UI con layout responsive en la parte inferior de la pantalla.
-- `game/modules/operator/operator_base.gd` (Actualizado): Añadida la insignia 3D `Label3D` sobre la cabeza del operador (`no_depth_test = true` para visibilidad tras paredes) y detección de separación de escuadra (`SEPARATED` a >12m del centroide).
-- `game/scripts/sandbox_test_scene.gd` (Actualizado): Integra `PlayerManager` y `SquadHUD`. Añadidos accesos directos `[2]`, `[3]`, `[4]` para alternar dinámicamente el número de jugadores activos en caliente durante las pruebas.
-- `game/scenes/sandbox_test_scene.tscn` (Actualizado): Incorpora los nodos `PlayerManager` y `SquadHUD`.
-- `docs/specs/vertical_slice/local_coop_implementation_notes.md` (Nuevo): Documentación técnica del sistema cooperativo local y resultados de los tests de cámara A, B y C.
+- `game/modules/vision/line_of_sight.gd` (Nuevo): Módulo reutilizable de raycast para evaluación de línea de visión (LoS) y cálculo de mitigación de daño por cobertura (0% despejado, 50% cobertura baja, 100% cobertura total).
+- `game/modules/vision/vision_cone_3d.gd` (Nuevo): Componente modular de Cono de Visión 3D con alcance configurable (16m), ángulo FOV (90°) y escaneo de objetivos por LoS. Diseñado para ser consumido por Operadores, Drones (Gen 1) e IA.
+- `game/modules/vision/squad_vision_registry.gd` (Nuevo): Capa de datos para la visión compartida de escuadra. Agrega los conos de visión de todos los operadores y drones activos en un mapa de inteligencia unificado.
+- `game/modules/operator/operator_base.gd` (Actualizado): Integrado sistema de disparo hitscan (cadencia 0.25s, daño base 18.0), evaluación de daño con mitigación por cobertura, componente `VisionCone3D` e integración con `InputManager`.
+- `game/scripts/input_manager.gd` (Actualizado): Añadido método `is_action_pressed` y accesos de teclado fallback para disparo en los 4 slots de jugador.
+- `game/scripts/squad_hud.gd` & `game/scenes/squad_hud.tscn` (Actualizado): Incorporado resumen de inteligencia de escuadra (`TopMarginContainer/IntelLabel`) mostrando el total de objetivos detectados en tiempo real.
+- `game/scripts/sandbox_test_scene.gd` & `game/scenes/sandbox_test_scene.tscn` (Actualizado): Integrado `SquadVisionRegistry`, estructuras de cobertura baja (1.0m) y media (2.5m), y conexión de eventos de daño mitigado por cobertura.
+- `docs/specs/vertical_slice/spatial_coop_test_results.md` (Nuevo): Resultados documentados del Test de Cooperación Espacial (lectura de posiciones, reagrupación, coberturas y cámara).
 
 #### 2. Decisiones Técnicas Ejecutadas
-- **Insignia 3D `Label3D` sin prueba de profundidad (`no_depth_test = true`)**: Garantiza que los jugadores puedan saber la posición exacta de sus aliados incluso si están detrás de coberturas o paredes, respondiendo directamente a la pregunta *"¿Dónde está mi compañero?"*.
-- **Alerta Táctica `[SEPARATED]`**: En lugar de bloquear físicamente el movimiento si un jugador se aleja, el sistema cambia el tinte de la insignia a naranja advertencia e indica la distancia en el HUD. Esto preserva la libertad de movimiento mientras incentiva la cohesión.
-- **Gestión Dinámica de Escuadra (`PlayerManager`)**: El número de jugadores puede cambiar entre 2, 3 y 4 sin reiniciar la aplicación ni modificar el código de la escena.
+- **Hitscan Táctico con Mitigación por Cobertura**: En lugar de proyectiles lentos o balística compleja arcade, el disparo evalúa la presencia de cobertura en el punto de impacto. Si la trayectoria de los pies del objetivo está bloqueada pero el pecho es visible (cobertura baja de 1m), el daño recibido se reduce automáticamente al 50%.
+- **Cono de Visión Reutilizable (`VisionCone3D`)**: Diseñado como un componente `Node3D` autónomo. Se adjunta al operador en la Etapa 3 y podrá ser adjuntado directamente a los Drones en la Etapa 4 sin modificar su código.
+- **Registro Central de Inteligencia (`SquadVisionRegistry`)**: Provee la capa de datos subyacente para la Niebla de Guerra. La visión de cualquier operador o dron se comparte con toda la escuadra instantáneamente.
 
 #### 3. Auditoría contra los 5 Pilares de GRAVITY
 
-| Pilar | Evaluación de la Etapa 2 |
+| Pilar | Evaluación de la Etapa 3 |
 | :--- | :--- |
-| **Pilar 1 (Información)** | Las insignias y el HUD proveen información de escuadra constante sin sobrecargar la pantalla táctica. |
-| **Pilar 2 (Nunca solo)** | La insignia `no_depth_test` y la alerta `[SEPARATED]` fuerzan al jugador a ser consciente de la posición de su escuadra en todo momento. |
-| **Pilar 3 (El Núcleo)** | No implementado en esta etapa (reservado para Etapa 6). La UI no interfiere con el espacio del objetivo. |
-| **Pilar 4 (El Terreno decide)** | La cámara y las alertas permiten mantener lectura de coberturas mientras se navega el mapa en grupo. |
-| **Pilar 5 (Cooperación)** | Identidad visual clara para los 4 roles (Recon, Vanguard, Disruptor, Engineer) con tarjetas individuales de estado. |
+| **Pilar 1 (Información)** | El disparo a ciegas sin LoS es ineficaz. `VisionCone3D` y `SquadVisionRegistry` proveen la base donde la información precede a la acción. |
+| **Pilar 2 (Nunca solo)** | La visión de escuadra compartida consolida la interdependencia: lo que ve el Recon en un flanco aparece en el registro de la escuadra. |
+| **Pilar 3 (El Núcleo)** | El sistema de combate no altera el objetivo del Núcleo; el daño es una herramienta de control de área, no una métrica de victoria. |
+| **Pilar 4 (El Terreno decide)** | La cobertura del mapa otorga una reducción del 50% al 100% de daño de forma natural basada en la física de raycasts 3D. |
+| **Pilar 5 (Cooperación)** | La mitigación por cobertura exige flanqueo o fuego coordinado desde múltiples ángulos para eliminar a un objetivo a cubierto. |
 
-#### 4. Verificación del Criterio DONE para Etapa 2
+#### 4. Verificación del Criterio DONE para Etapa 3
 
 | Criterio DONE | Estado | Evidencia |
 | :--- | :---: | :--- |
-| Se pueden iniciar sesiones de 2-4 jugadores | ✅ | `PlayerManager` permite alternar 2, 3 y 4 jugadores dinámicamente con teclas `[2]`, `[3]`, `[4]` |
-| Cada jugador tiene identidad visual clara | ✅ | Materiales 3D coloreados por slot + `Label3D` superior con rol y slot ID |
-| Cada jugador sabe dónde están sus aliados | ✅ | Insignias `Label3D` visibles tras paredes + Tarjetas del HUD con metros de distancia |
-| Controles funcionan con múltiples dispositivos | ✅ | Gamepads 0-3 autodetectados + perfiles `PlayerInputProfile` + fallback en teclado |
-| La cámara mantiene lectura táctica | ✅ | Pruebas de Cámara TEST A, B y C aprobadas en `local_coop_implementation_notes.md` |
-| No aparece sensación de "jugadores solos" | ✅ | Alerta `[SEPARATED]` a >12m + tarjetas de escuadra coordinadas en HUD |
+| Disparo hitscan básico funcionando | ✅ | Integrated in `operator_base.gd` with 0.25s cooldown and base damage |
+| Coberturas mitigan daño naturalmente | ✅ | `LineOfSightQuery.check_cover_protection` reduce 50% en cobertura baja |
+| Cono de visión 3D modular funcionando | ✅ | `VisionCone3D` scans targets within 90° FOV and 16m range |
+| Raycast LoS reutilizable implementado | ✅ | `line_of_sight.gd` tested for obstacle detection and target height |
+| Capa de datos para Niebla de Guerra creada | ✅ | `squad_vision_registry.gd` aggregates squad targets into unified intel |
+| HUD muestra resumen de inteligencia | ✅ | `squad_hud.tscn` displays active targets in vision header |
+| Test de Cooperación Espacial ejecutado | ✅ | Documented in `spatial_coop_test_results.md` |
 
 ---
 
-## 🟢 ETAPA 2 COMPLETADA — LISTO PARA ETAPA 3 (Operador Base con Sistema de Disparo y Coberturas)
+## ⚠️ ANÁLISIS DE RIESGOS PARA LA ETAPA 4 (Dron Gen 1)
+
+1. **Jerarquía de Transformaciones del Dron en Modo Piloto**:
+   - *Riesgo*: Al pasar a Modo Piloto, el control del `CameraController` debe alternar suavemente entre la posición del operador y la posición del Dron sin causar desorientación en la cámara isométrica.
+   - *Mitigación*: `camera_controller.gd` ya soporta `add_target()` y `remove_target()` genéricos. El Dron en Modo Piloto se añadirá como target prioritario de la cámara.
+
+2. **Drenaje de Batería Táctica Compartida**:
+   - *Riesgo*: El consumo de batería en Modo Piloto debe balancearse para que el operador no quede varado a mitad del mapa sin energía para el exoesqueleto.
+   - *Mitigación*: Implementar advertencias sonoras y visuales cuando la batería caiga al 25% antes de forzar el desacople del Modo Piloto.
+
+3. **Vulnerabilidad del Cuerpo Inmóvil**:
+   - *Riesgo*: El cuerpo del operador en Modo Piloto debe permanecer colisionable y vulnerable al fuego enemigo.
+   - *Mitigación*: `OperatorBase` mantiene `is_piloting_drone = true` procesando desaceleración y daño normal mientras el jugador pilota el Dron.
+
+---
+
+## 🟢 ETAPA 3 COMPLETADA — LISTO PARA ETAPA 4 (Dron Gen 1: Escolta, Estacionario, Piloto)

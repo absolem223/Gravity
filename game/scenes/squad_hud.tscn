@@ -12,6 +12,21 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("1_hud_script")
 
+[node name="TopMarginContainer" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 50.0
+grow_horizontal = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 15
+
+[node name="IntelLabel" type="Label" parent="TopMarginContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.35, 0.8, 0.95, 1)
+theme_override_font_sizes/font_size = 14
+text = "SQUAD INTEL: 0 TARGETS IN VISION"
+
 [node name="MarginContainer" type="MarginContainer" parent="."]
 layout_mode = 1
 anchors_preset = 12

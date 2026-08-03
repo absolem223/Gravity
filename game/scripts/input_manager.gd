@@ -74,16 +74,14 @@ func _on_joy_connection_changed(device_id: int, connected: bool) -> void:
 
 ## Automatically assigns available controllers to players 1-4
 func _auto_assign_devices() -> void:
-	# P1 always gets Keyboard by default, or Gamepad 0 if present
 	var p1_prof: PlayerInputProfile = _profiles.get(1)
 	if p1_prof != null:
 		p1_prof.device_id = -1
 		p1_prof.device_type = PlayerInputProfile.DeviceType.KEYBOARD_MOUSE
 		p1_prof.is_connected = true
 
-	# Assign remaining joypads to P2, P3, P4
 	for i: int in range(0, 3):
-		var p_id: int = i + 2 # P2, P3, P4
+		var p_id: int = i + 2
 		var prof: PlayerInputProfile = _profiles.get(p_id)
 		if prof != null:
 			if i < _connected_joypads.size():
@@ -91,7 +89,6 @@ func _auto_assign_devices() -> void:
 				prof.device_type = PlayerInputProfile.DeviceType.GAMEPAD
 				prof.is_connected = true
 			else:
-				# Keyboard fallbacks for P2-P4 if joypads are missing
 				prof.device_id = -1
 				prof.device_type = PlayerInputProfile.DeviceType.KEYBOARD_MOUSE
 				prof.is_connected = true
@@ -126,7 +123,6 @@ func get_movement_vector(player_id: int) -> Vector2:
 
 	var input_vec: Vector2 = Input.get_vector(left_action, right_action, up_action, down_action)
 
-	# Read Gamepad Axis if profile specifies Gamepad
 	var profile: PlayerInputProfile = get_profile(player_id)
 	if profile != null and profile.device_type == PlayerInputProfile.DeviceType.GAMEPAD and profile.device_id >= 0:
 		var joy_x: float = Input.get_joy_axis(profile.device_id, JOY_AXIS_LEFT_X)
@@ -135,7 +131,6 @@ func get_movement_vector(player_id: int) -> Vector2:
 		if joy_vec.length() > 0.2:
 			input_vec = joy_vec
 
-	# Fallback for Keyboard split-testing on single keyboard
 	if input_vec == Vector2.ZERO:
 		input_vec = _read_fallback_keyboard_vector(player_id)
 
@@ -166,6 +161,29 @@ func _read_fallback_keyboard_vector(player_id: int) -> Vector2:
 			if Input.is_key_pressed(KEY_KP_8): vec.y -= 1.0
 			if Input.is_key_pressed(KEY_KP_5): vec.y += 1.0
 	return vec
+
+## Checks if specified action is currently pressed (held down) for player ID
+func is_action_pressed(player_id: int, action_suffix: String) -> bool:
+	var action_name: String = "p%d_%s" % [player_id, action_suffix]
+	if InputMap.has_action(action_name) and Input.is_action_pressed(action_name):
+		return true
+
+	# Check gamepad trigger or button if profile is Gamepad
+	var profile: PlayerInputProfile = get_profile(player_id)
+	if profile != null and profile.device_type == PlayerInputProfile.DeviceType.GAMEPAD and profile.device_id >= 0:
+		if action_suffix == "fire":
+			if Input.is_joy_button_pressed(profile.device_id, JOY_BUTTON_RIGHT_SHOULDER) or Input.get_joy_axis(profile.device_id, JOY_AXIS_TRIGGER_RIGHT) > 0.5:
+				return true
+
+	# Keyboard fallback shortcuts for testing fire action:
+	if action_suffix == "fire":
+		match player_id:
+			1: return Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_E) or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+			2: return Input.is_key_pressed(KEY_U) or Input.is_key_pressed(KEY_O)
+			3: return Input.is_key_pressed(KEY_SLASH) or Input.is_key_pressed(KEY_SHIFT)
+			4: return Input.is_key_pressed(KEY_KP_0) or Input.is_key_pressed(KEY_KP_ENTER)
+
+	return false
 
 ## Checks if specified action was pressed this frame for player ID
 func is_action_just_pressed(player_id: int, action_suffix: String) -> bool:
