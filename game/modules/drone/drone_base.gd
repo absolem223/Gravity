@@ -42,7 +42,7 @@ var operator: OperatorBase = null
 ## Maximum health points
 @export var health_max: float = 50.0
 
-## Preloaded WreckSite scene
+## Preloaded WreckSalvage scene (Etapa 7 — extends WreckSite with salvage interaction)
 @export var wreck_site_scene: PackedScene = preload("res://scenes/wreck_site.tscn")
 
 ## Current health points
@@ -199,7 +199,7 @@ func take_damage(amount: float) -> void:
 	if health_current <= 0.0:
 		_destroy()
 
-## Triggers destruction and spawns WreckSite
+## Triggers destruction and spawns WreckSalvage for resource recovery (Etapa 7)
 func _destroy() -> void:
 	destroyed.emit()
 	if wreck_site_scene != null:
@@ -207,6 +207,13 @@ func _destroy() -> void:
 		if wreck != null:
 			wreck.position = global_position
 			get_parent().add_child(wreck)
+			## If the wreck is a WreckSalvage, register it with ResourceManager
+			if wreck is WreckSalvage:
+				var rm_nodes: Array[Node] = get_tree().get_nodes_in_group("resource_manager")
+				if not rm_nodes.is_empty():
+					var rm: ResourceManager = rm_nodes[0] as ResourceManager
+					if rm != null:
+						rm.register_wreck_salvage(wreck as WreckSalvage)
 	
 	if operator != null:
 		operator.is_piloting_drone = false

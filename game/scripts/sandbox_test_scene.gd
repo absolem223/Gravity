@@ -1,7 +1,7 @@
 # sandbox_test_scene.gd
 # Technical Rationale: Entry script for SANDBOX-01.
 # Integrates PlayerManager, SquadHUD, InputManager, CameraController, SquadVisionRegistry,
-# Synthesis Points, and AICore (Etapa 6 — AI Core system).
+# Synthesis Points, AICore (Etapa 6), and ResourceManager + pickups (Etapa 7).
 # Adheres to ADR-0001 (GDScript 2.x Strict Typing).
 
 class_name SandboxTestScene
@@ -19,9 +19,13 @@ var _synthesis_zones: Array[Area3D] = []
 ## AICore module reference (Etapa 6)
 var ai_core: AICore = null
 
+## ResourceManager module reference (Etapa 7)
+var resource_manager: ResourceManager = null
+
 func _ready() -> void:
 	_initialize_etapa_4_sandbox()
 	_initialize_ai_core()
+	_initialize_resource_system()
 
 func _physics_process(_delta: float) -> void:
 	if player_manager != null:
@@ -208,3 +212,66 @@ func _unhandled_input(event: InputEvent) -> void:
 				print("[SandboxTestScene] Testing 4-Player Squad")
 				if player_manager != null:
 					player_manager.set_active_player_count(4)
+
+## ──────────────────────────────────────────────
+## ETAPA 7 — RESOURCE SYSTEM INITIALIZATION
+## ──────────────────────────────────────────────
+
+## Initialises ResourceManager, pre-placed pickups and salvageable WreckSites for SANDBOX-01.
+## Pickup positions chosen to validate all three routes without modifying map geometry.
+func _initialize_resource_system() -> void:
+	## 1. Create and register ResourceManager
+	resource_manager = ResourceManager.new()
+	resource_manager.name = "ResourceManager"
+	add_child(resource_manager)
+
+	## Connect signals for console telemetry
+	resource_manager.pickup_collected.connect(_on_resource_collected)
+	resource_manager.wreck_salvaged.connect(_on_wreck_salvaged)
+
+	## 2. Pre-placed pickups — one per route + one at spawn
+	## Spawn area (safe collection to test basic pickup)
+	resource_manager.spawn_pickup(
+		ResourceInventory.TYPE_MAINTENANCE, 10,
+		Vector3(0.0, 0.1, 7.0), self
+	)
+	## Left route (Ruta Oeste — near RouteLeft_LowCover)
+	resource_manager.spawn_pickup(
+		ResourceInventory.TYPE_MAINTENANCE, 8,
+		Vector3(-20.0, 0.1, -2.0), self
+	)
+	## Central route (Ruta Central — near Center_LowCover1)
+	resource_manager.spawn_pickup(
+		ResourceInventory.TYPE_MAINTENANCE, 12,
+		Vector3(2.0, 0.1, -8.0), self
+	)
+	## Right route elevated platform (Ruta Derecha — top of ramp)
+	resource_manager.spawn_pickup(
+		ResourceInventory.TYPE_MAINTENANCE, 15,
+		Vector3(18.0, 2.0, -5.0), self
+	)
+	## Near Core perimeter — high-value pickup, dangerous to collect
+	resource_manager.spawn_pickup(
+		ResourceInventory.TYPE_MAINTENANCE, 20,
+		Vector3(3.0, 0.1, -18.0), self
+	)
+
+	## 3. Pre-placed WreckSalvage nodes for testing salvage mechanic
+	_spawn_wreck_salvage(Vector3(-15.0, 0.1, -8.0), 8)   ## Left route wreck
+	_spawn_wreck_salvage(Vector3(5.0, 0.1, -13.0), 12)  ## Central route wreck
+
+	print("[SandboxTestScene] ResourceManager initialized. 5 pickups + 2 pre-placed wrecks spawned.")
+
+## Spawns a WreckSalvage node at world_pos with given component yield
+func _spawn_wreck_salvage(world_pos: Vector3, components: int) -> void:
+	var wreck: WreckSalvage = WreckSalvage.new()
+	wreck.components_per_salvage = components
+	add_child(wreck)
+	wreck.global_position = world_pos
+	resource_manager.register_wreck_salvage(wreck)
+
+func _on_resource_collected(resource_type: String, amount: int, collector_id: int) -> void:
+	print("[RESOURCES] P%d collected %d x %s" % [collector_id, amount, resource_type])
+
+func _on_wreck_salvaged(salvager_id: int, components: int) -> void:
+	print("[RESOURCES] P%d salvaged wreck — %d maintenance components spawned" % [salvager_id, components])

@@ -142,6 +142,14 @@ func _build_player_cards() -> void:
 		info_label.add_theme_color_override("font_color", Color(0.7, 0.75, 0.8))
 		vbox.add_child(info_label)
 
+		# COMPONENTS bar (Etapa 7 — resource economy)
+		var comp_label: Label = Label.new()
+		comp_label.name = "ComponentsLabel"
+		comp_label.text = "◈ COMP: 0 / 100"
+		comp_label.add_theme_font_size_override("font_size", 10)
+		comp_label.add_theme_color_override("font_color", Color(0.3, 0.9, 0.55))
+		vbox.add_child(comp_label)
+
 		card.add_child(vbox)
 		cards_container.add_child(card)
 		_player_cards[p_id] = card
@@ -198,6 +206,16 @@ func _update_hud_state() -> void:
 							status_str = "PILOT"
 				
 				info_label.text = "%s | %s | %.1fm | BAT: %d%%" % [dev_name, status_str, dist, int(op.battery_current)]
+
+			## Update COMPONENTS label (Etapa 7)
+			var comp_label: Label = card.find_child("ComponentsLabel", true, false) as Label
+			if comp_label != null:
+				var comp_amt: int = op.get_maintenance_components()
+				var comp_cap: int = op.get_inventory_capacity()
+				comp_label.text = "◈ COMP: %d / %d" % [comp_amt, comp_cap]
+				## Color shifts toward yellow as inventory fills
+				var fill_ratio: float = float(comp_amt) / float(max(comp_cap, 1))
+				comp_label.add_theme_color_override("font_color", Color(0.3 + fill_ratio * 0.6, 0.9 - fill_ratio * 0.3, 0.55 - fill_ratio * 0.4))
 		else:
 			card.visible = false
 

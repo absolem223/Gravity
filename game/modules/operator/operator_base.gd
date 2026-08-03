@@ -1,7 +1,8 @@
 # operator_base.gd
 # Technical Rationale: Base class for all 4 operator prototypes.
 # Implements CharacterBody3D locomotion, 8-direction movement, orientation, health, overhead squad badge,
-# hitscan combat with cover damage mitigation, VisionCone3D, permanent Drone, and shared tactical battery.
+# hitscan combat with cover damage mitigation, VisionCone3D, permanent Drone, shared tactical battery,
+# and ResourceInventory (Etapa 7).
 # Adheres to ADR-0001 (GDScript 2.x Strict Typing).
 
 class_name OperatorBase
@@ -13,6 +14,7 @@ signal operator_incapacitated(p_id: int)
 signal weapon_fired(origin: Vector3, direction: Vector3)
 signal damage_dealt(target: OperatorBase, damage: float, mitigated_by_cover: bool)
 signal drone_status_changed(p_id: int, has_drone: bool, mode: String)
+signal resource_collected(resource_type: String, amount: int)
 
 ## Player Slot ID (1 to 4)
 @export_range(1, 4) var player_id: int = 1:
@@ -48,6 +50,12 @@ var battery_current: float = 100.0
 
 ## Current health points
 var health_current: float = 100.0
+
+## Resource Inventory (Etapa 7) — composed at _ready
+var inventory: ResourceInventory = null
+
+## Team assignment (default 0 = attackers; Etapa 9 will use 1 for defenders)
+var team_id: int = 0
 
 ## State Flags
 var is_incapacitated: bool = false
@@ -88,9 +96,21 @@ func _ready() -> void:
 	_setup_vision_cone()
 	_update_player_color()
 	_update_overhead_badge()
+	_setup_inventory()
 	
 	# Spawn permanent Drone at launch
 	call_deferred("spawn_drone")
+
+## Initialises the per-operator ResourceInventory
+func _setup_inventory() -> void:
+	inventory = ResourceInventory.new()
+	inventory.name = "ResourceInventory"
+	add_child(inventory)
+	inventory.inventory_changed.connect(_on_inventory_changed)
+
+func _on_inventory_changed(resource_type: String, _current: int, _capacity: int) -> void:
+	## Re-emit so HUD can listen on the operator signal
+	resource_collected.emit(resource_type, _current)
 
 func _physics_process(delta: float) -> void:
 	if _fire_cooldown > 0.0:
@@ -403,3 +423,26 @@ func _update_player_color() -> void:
 		material.albedo_color = Color(0.7, 0.7, 0.7)
 		
 	_mesh_instance.material_override = material
+
+## ──────────────────────────────────────────────
+## RESOURCE API (Etapa 7)
+## ──────────────────────────────────────────────
+
+## Public entry point for collecting a resource (used by ResourcePickup and external systems).
+## Returns the amount actually added to the inventory.
+func collect_resource(resource_type: String, amount: int) -> int:
+	if inventory == null or is_incapacitated:
+		return 0
+	return inventory.add_resource(resource_type, amount)
+
+## Returns current maintenance component count from this operator's inventory.
+func get_maintenance_components() -> int:
+	if inventory == null:
+		return 0
+	return inventory.get_maintenance_components()
+
+## Returns the operator's inventory capacity.
+func get_inventory_capacity() -> int:
+	if inventory == null:
+		return 0
+	return inventory.capacity
