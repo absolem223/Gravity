@@ -1,7 +1,8 @@
 # squad_hud.gd
-# Technical Rationale: Local cooperative tactical HUD showing squad status cards (P1-P4) and shared squad intel summary.
+# Technical Rationale: Local cooperative tactical HUD showing squad status cards (P1-P4), shared squad intel summary,
+# and AI Core status strip (Etapa 6).
 # Displays HP, slot color, placeholder role, device status, distance from centroid, drone status, battery percentage,
-# and squad target detection count.
+# squad target detection count, Core state, and Core progress.
 # Adheres to ADR-0001 (GDScript 2.x Strict Typing).
 
 class_name SquadHUD
@@ -15,6 +16,21 @@ var input_manager: InputManager = null
 
 ## Reference to SquadVisionRegistry node
 var squad_vision_registry: SquadVisionRegistry = null
+
+## Reference to AICore module (Etapa 6)
+var _ai_core: AICore = null
+
+## Core status strip labels (built programmatically)
+var _core_state_label: Label = null
+var _core_percent_label: Label = null
+var _core_bar: ProgressBar = null
+
+## Core state colors
+const CORE_COLOR_IDLE:      Color = Color(0.4, 0.45, 0.55)
+const CORE_COLOR_HACKING:   Color = Color(0.15, 0.85, 0.45)
+const CORE_COLOR_CONTESTED: Color = Color(0.95, 0.65, 0.15)
+const CORE_COLOR_DEGRADED:  Color = Color(0.85, 0.25, 0.25)
+const CORE_COLOR_CAPTURED:  Color = Color(0.2, 0.65, 1.0)
 
 ## Container for player status cards
 @onready var cards_container: HBoxContainer = $MarginContainer/CardsContainer if has_node("MarginContainer/CardsContainer") else null
@@ -52,6 +68,27 @@ func setup_hud(p_mgr: PlayerManager, in_mgr: InputManager, vision_reg: SquadVisi
 	input_manager = in_mgr
 	squad_vision_registry = vision_reg
 	_build_player_cards()
+	_build_core_strip()
+
+## Injects AICore reference for Core status display (Etapa 6)
+func set_ai_core(core: AICore) -> void:
+	_ai_core = core
+
+## Updates core status strip from SandboxTestScene callbacks
+func update_core_status(progress: float, state: HackController.CoreState) -> void:
+	if _core_bar != null:
+		_core_bar.value = progress
+	if _core_percent_label != null:
+		_core_percent_label.text = "%d%%" % int(progress)
+	var col: Color = _core_state_to_color(state)
+	var label_text: String = _core_state_to_label(state)
+	if _core_state_label != null:
+		_core_state_label.text = label_text
+		_core_state_label.add_theme_color_override("font_color", col)
+	if _core_percent_label != null:
+		_core_percent_label.add_theme_color_override("font_color", col)
+	if _core_bar != null:
+		_core_bar.modulate = col
 
 ## Programmatically constructs 4 player status cards in bottom HUD
 func _build_player_cards() -> void:
@@ -168,3 +205,65 @@ func _update_hud_state() -> void:
 	if intel_label != null and squad_vision_registry != null:
 		var target_count: int = squad_vision_registry.get_all_squad_detected_targets().size()
 		intel_label.text = "SQUAD INTEL: %d TARGETS IN VISION" % target_count
+
+## Builds the AI Core status strip below the intel label
+func _build_core_strip() -> void:
+	var strip: HBoxContainer = HBoxContainer.new()
+	strip.name = "CoreStrip"
+	strip.add_theme_constant_override("separation", 8)
+
+	## Label: static title
+	var title: Label = Label.new()
+	title.text = "◈ CORE:"
+	title.add_theme_font_size_override("font_size", 12)
+	title.add_theme_color_override("font_color", Color(0.55, 0.65, 0.75))
+	strip.add_child(title)
+
+	## State label
+	_core_state_label = Label.new()
+	_core_state_label.name = "CoreStateLabel"
+	_core_state_label.text = "IDLE"
+	_core_state_label.add_theme_font_size_override("font_size", 12)
+	_core_state_label.add_theme_color_override("font_color", CORE_COLOR_IDLE)
+	_core_state_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	strip.add_child(_core_state_label)
+
+	## Progress bar
+	_core_bar = ProgressBar.new()
+	_core_bar.name = "CoreBar"
+	_core_bar.max_value = 100.0
+	_core_bar.value = 0.0
+	_core_bar.custom_minimum_size = Vector2(120, 12)
+	_core_bar.show_percentage = false
+	_core_bar.modulate = CORE_COLOR_IDLE
+	strip.add_child(_core_bar)
+
+	## Percent label
+	_core_percent_label = Label.new()
+	_core_percent_label.name = "CorePercentLabel"
+	_core_percent_label.text = "0%"
+	_core_percent_label.add_theme_font_size_override("font_size", 12)
+	_core_percent_label.add_theme_color_override("font_color", CORE_COLOR_IDLE)
+	strip.add_child(_core_percent_label)
+
+	## Attach below IntelLabel in the TopMarginContainer
+	if has_node("TopMarginContainer"):
+		$TopMarginContainer.add_child(strip)
+	else:
+		add_child(strip)
+
+func _core_state_to_color(state: HackController.CoreState) -> Color:
+	match state:
+		HackController.CoreState.HACKING:   return CORE_COLOR_HACKING
+		HackController.CoreState.CONTESTED: return CORE_COLOR_CONTESTED
+		HackController.CoreState.DEGRADED:  return CORE_COLOR_DEGRADED
+		HackController.CoreState.CAPTURED:  return CORE_COLOR_CAPTURED
+		_:                                  return CORE_COLOR_IDLE
+
+func _core_state_to_label(state: HackController.CoreState) -> String:
+	match state:
+		HackController.CoreState.HACKING:   return "HACKING"
+		HackController.CoreState.CONTESTED: return "CONTESTED"
+		HackController.CoreState.DEGRADED:  return "DEGRADING"
+		HackController.CoreState.CAPTURED:  return "CAPTURED"
+		_:                                  return "IDLE"
