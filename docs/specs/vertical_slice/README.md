@@ -50,6 +50,9 @@ Resultados documentados del Test de Cooperación Espacial (lectura de posiciones
 ### [drone_validation_test_results.md](file:///E:/GRAVITY/docs/specs/vertical_slice/drone_validation_test_results.md)
 Resultados de las 6 pruebas de validación obligatorias del Dron Gen 1: Escorta, Estacionario, Piloto, Destrucción, Reconstrucción e Inteligencia Compartida.
 
+### [sandbox01_validation_results.md](file:///E:/GRAVITY/docs/specs/vertical_slice/sandbox01_validation_results.md)
+Decisiones de diseño de SANDBOX-01, 3 rutas diferenciadas, conductos de drones, posición del Núcleo, Puntos de Síntesis y resultados de validación (Etapa 5).
+
 ---
 
 ## 🔴 Decisión Técnica Prioritaria

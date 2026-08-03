@@ -1,15 +1,10 @@
-[gd_scene load_steps=18 format=3 uid="uid://csandboxtest001"]
+[gd_scene load_steps=19 format=3 uid="uid://csandboxtest001"]
 
 [ext_resource type="Script" path="res://scripts/sandbox_test_scene.gd" id="1_scene_script"]
-
 [ext_resource type="Script" path="res://scripts/input_manager.gd" id="2_input_script"]
-
 [ext_resource type="Script" path="res://scripts/player_manager.gd" id="3_player_mgr_script"]
-
 [ext_resource type="Script" path="res://modules/vision/squad_vision_registry.gd" id="4_vision_registry_script"]
-
 [ext_resource type="Script" path="res://scripts/camera_controller.gd" id="5_camera_script"]
-
 [ext_resource type="PackedScene" uid="uid://csquadhud001" path="res://scenes/squad_hud.tscn" id="6_hud_scene"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
@@ -33,16 +28,22 @@ size = Vector3(60, 1, 60)
 size = Vector3(60, 1, 60)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_low_cover"]
-size = Vector3(4, 1, 1)
+size = Vector3(3, 1, 0.8)
 
 [sub_resource type="BoxMesh" id="BoxMesh_low_cover"]
-size = Vector3(4, 1, 1)
+size = Vector3(3, 1, 0.8)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_med_cover"]
-size = Vector3(3, 2.5, 3)
+size = Vector3(3, 2, 1)
 
 [sub_resource type="BoxMesh" id="BoxMesh_med_cover"]
-size = Vector3(3, 2.5, 3)
+size = Vector3(3, 2, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_high_cover"]
+size = Vector3(15, 4, 1.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_high_cover"]
+size = Vector3(15, 4, 1.5)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_synth"]
 size = Vector3(4, 1, 4)
@@ -92,35 +93,116 @@ shape = SubResource("BoxShape3D_ground")
 [node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/Ground"]
 mesh = SubResource("BoxMesh_ground")
 
-[node name="LowCoverWall" type="StaticBody3D" parent="MapGeometry"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -4)
+[node name="SpawnProtectionWall" type="StaticBody3D" parent="MapGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 10)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/LowCoverWall"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/SpawnProtectionWall"]
+shape = SubResource("BoxShape3D_high_cover")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/SpawnProtectionWall"]
+mesh = SubResource("BoxMesh_high_cover")
+
+[node name="CorePlatform" type="StaticBody3D" parent="MapGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -20)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/CorePlatform"]
+shape = SubResource("BoxShape3D_synth")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/CorePlatform"]
+mesh = SubResource("BoxMesh_synth")
+
+[node name="CorePlaceholder" type="StaticBody3D" parent="MapGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -20)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/CorePlaceholder"]
+shape = SubResource("BoxShape3D_med_cover")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/CorePlaceholder"]
+mesh = SubResource("BoxMesh_med_cover")
+
+[node name="RouteLeft_Wall1" type="StaticBody3D" parent="MapGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12, 2, -5)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/RouteLeft_Wall1"]
+shape = SubResource("BoxShape3D_high_cover")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/RouteLeft_Wall1"]
+mesh = SubResource("BoxMesh_high_cover")
+
+[node name="RouteLeft_LowCover" type="StaticBody3D" parent="MapGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -22, 0.5, -2)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/RouteLeft_LowCover"]
 shape = SubResource("BoxShape3D_low_cover")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/LowCoverWall"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/RouteLeft_LowCover"]
 mesh = SubResource("BoxMesh_low_cover")
 
-[node name="MediumCoverBlock" type="StaticBody3D" parent="MapGeometry"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 1.25, -2)
+[node name="RouteLeft_MedCover" type="StaticBody3D" parent="MapGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -22, 1, -10)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/MediumCoverBlock"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/RouteLeft_MedCover"]
 shape = SubResource("BoxShape3D_med_cover")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/MediumCoverBlock"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/RouteLeft_MedCover"]
 mesh = SubResource("BoxMesh_med_cover")
 
-[node name="MezzanineElevated" type="StaticBody3D" parent="MapGeometry"]
-transform = Transform3D(2, 0, 0, 0, 1.5, 0, 0, 0, 2, -8, 1.5, -10)
+[node name="RouteRight_ElevatedPlatform" type="StaticBody3D" parent="MapGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 18, 1.5, -5)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/MezzanineElevated"]
-shape = SubResource("BoxShape3D_med_cover")
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/RouteRight_ElevatedPlatform"]
+shape = SubResource("BoxShape3D_high_cover")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/MezzanineElevated"]
-mesh = SubResource("BoxMesh_med_cover")
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/RouteRight_ElevatedPlatform"]
+mesh = SubResource("BoxMesh_high_cover")
+
+[node name="RouteRight_Ramp" type="StaticBody3D" parent="MapGeometry"]
+transform = Transform3D(1, 0, 0, 0, 0.965926, 0.258819, 0, -0.258819, 0.965926, 18, 0.5, 6)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/RouteRight_Ramp"]
+shape = SubResource("BoxShape3D_low_cover")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/RouteRight_Ramp"]
+mesh = SubResource("BoxMesh_low_cover")
+
+[node name="Center_LowCover1" type="StaticBody3D" parent="MapGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0.5, -4)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/Center_LowCover1"]
+shape = SubResource("BoxShape3D_low_cover")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/Center_LowCover1"]
+mesh = SubResource("BoxMesh_low_cover")
+
+[node name="Center_LowCover2" type="StaticBody3D" parent="MapGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 0.5, -12)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/Center_LowCover2"]
+shape = SubResource("BoxShape3D_low_cover")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/Center_LowCover2"]
+mesh = SubResource("BoxMesh_low_cover")
+
+[node name="ConduitWall_Left" type="StaticBody3D" parent="MapGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12, 2, -14)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/ConduitWall_Left"]
+shape = SubResource("BoxShape3D_high_cover")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/ConduitWall_Left"]
+mesh = SubResource("BoxMesh_high_cover")
+
+[node name="DroneConduit_Left" type="StaticBody3D" parent="MapGeometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12, 0.35, -10.5)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/DroneConduit_Left"]
+shape = SubResource("BoxShape3D_low_cover")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="MapGeometry/DroneConduit_Left"]
+mesh = SubResource("BoxMesh_low_cover")
 
 [node name="SynthesisPoint1" type="Area3D" parent="MapGeometry" groups=["synthesis_points"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12, 0.05, 5)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -21, 0.05, 5)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/SynthesisPoint1"]
 shape = SubResource("BoxShape3D_synth")
@@ -129,7 +211,7 @@ shape = SubResource("BoxShape3D_synth")
 mesh = SubResource("BoxMesh_synth")
 
 [node name="SynthesisPoint2" type="Area3D" parent="MapGeometry" groups=["synthesis_points"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 0.05, 5)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 21, 0.05, 5)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="MapGeometry/SynthesisPoint2"]
 shape = SubResource("BoxShape3D_synth")
