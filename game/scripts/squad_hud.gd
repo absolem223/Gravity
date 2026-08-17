@@ -20,7 +20,15 @@ var squad_vision_registry: SquadVisionRegistry = null
 ## Reference to AICore module (Etapa 6)
 var _ai_core: AICore = null
 
+## Reference to the generic TerminalManager (capturable objectives)
+var _terminal_manager: TerminalManager = null
+
+## Terminal currently shown by the single dynamic widget ("" = hidden)
+var _active_terminal_id: String = ""
+
 ## Core status strip labels (built programmatically)
+var _core_strip: HBoxContainer = null
+var _core_title_label: Label = null
 var _core_state_label: Label = null
 var _core_percent_label: Label = null
 var _core_bar: ProgressBar = null
@@ -74,6 +82,20 @@ func setup_hud(p_mgr: PlayerManager, in_mgr: InputManager, vision_reg: SquadVisi
 func set_ai_core(core: AICore) -> void:
 	_ai_core = core
 
+## Injects the TerminalManager and wires the single dynamic terminal widget.
+## The same widget shows whichever terminal the player is currently capturing.
+func set_terminal_manager(tm: TerminalManager) -> void:
+	if _terminal_manager == tm:
+		return
+	_terminal_manager = tm
+	if tm == null:
+		return
+	tm.terminal_presence_changed.connect(_on_terminal_presence_changed)
+	tm.terminal_progress_changed.connect(_on_terminal_progress_changed)
+	tm.terminal_state_changed.connect(_on_terminal_state_changed)
+	tm.terminal_hack_started.connect(_on_terminal_hack_started)
+	tm.terminal_completed.connect(_on_terminal_completed)
+
 ## Updates core status strip from SandboxTestScene callbacks
 func update_core_status(progress: float, state: HackController.CoreState) -> void:
 	if _core_bar != null:
@@ -90,6 +112,60 @@ func update_core_status(progress: float, state: HackController.CoreState) -> voi
 	if _core_bar != null:
 		_core_bar.modulate = col
 
+## ──────────────────────────────────────────────
+## TERMINAL WIDGET (single dynamic widget for all objectives)
+## ──────────────────────────────────────────────
+
+## Shows the widget for the terminal the player just entered.
+func _on_terminal_presence_changed(terminal_id: String, active: bool) -> void:
+	if active:
+		_activate_terminal(terminal_id)
+	elif terminal_id == _active_terminal_id:
+		_hide_terminal_widget()
+
+func _on_terminal_hack_started(terminal_id: String, _team_id: int) -> void:
+	_activate_terminal(terminal_id)
+
+func _on_terminal_progress_changed(terminal_id: String, progress: float, _team_id: int) -> void:
+	if terminal_id != _active_terminal_id:
+		return
+	if _terminal_manager == null:
+		return
+	var core: AICore = _terminal_manager.get_terminal(terminal_id)
+	var state: HackController.CoreState = core.get_current_state() if core != null else HackController.CoreState.HACKING
+	update_core_status(progress, state)
+
+func _on_terminal_state_changed(terminal_id: String, state: HackController.CoreState) -> void:
+	if terminal_id != _active_terminal_id:
+		return
+	update_core_status(_terminal_manager.get_progress(terminal_id) if _terminal_manager != null else 0.0, state)
+
+func _on_terminal_completed(terminal_id: String, _team_id: int) -> void:
+	if terminal_id != _active_terminal_id:
+		return
+	update_core_status(100.0, HackController.CoreState.CAPTURED)
+
+## Shows the single widget bound to the given terminal (name + progress).
+func _activate_terminal(terminal_id: String) -> void:
+	_active_terminal_id = terminal_id
+	var name: String = terminal_id
+	if _terminal_manager != null:
+		var core: AICore = _terminal_manager.get_terminal(terminal_id)
+		if core != null:
+			name = core.terminal_display_name
+	if _core_title_label != null:
+		_core_title_label.text = "◈ %s:" % name
+	if _core_strip != null:
+		_core_strip.visible = true
+	if _terminal_manager != null:
+		update_core_status(_terminal_manager.get_progress(terminal_id), _terminal_manager.get_state(terminal_id))
+
+## Hides the widget (player left the capture zone).
+func _hide_terminal_widget() -> void:
+	_active_terminal_id = ""
+	if _core_strip != null:
+		_core_strip.visible = false
+
 ## Programmatically constructs 4 player status cards in bottom HUD
 func _build_player_cards() -> void:
 	if cards_container == null:
@@ -102,7 +178,7 @@ func _build_player_cards() -> void:
 	for p_id: int in range(1, 5):
 		var card: PanelContainer = PanelContainer.new()
 		card.name = "PlayerCard_P%d" % p_id
-		card.custom_minimum_size = Vector2(240, 85)
+		card.custom_minimum_size = Vector2(240, 108)
 		
 		var style: StyleBoxFlat = StyleBoxFlat.new()
 		style.bg_color = Color(0.08, 0.09, 0.12, 0.85)
@@ -158,9 +234,26 @@ func _build_player_cards() -> void:
 		abil_label.add_theme_color_override("font_color", Color(0.2, 0.65, 1.0))
 		vbox.add_child(abil_label)
 
+		# AMMO label (Weapon System Gen 1)
+		var ammo_label: Label = Label.new()
+		ammo_label.name = "AmmoLabel"
+		ammo_label.text = "AMMO: 30/30 · MAGS: 3"
+		ammo_label.add_theme_font_size_override("font_size", 10)
+		ammo_label.add_theme_color_override("font_color", Color(0.85, 0.9, 0.95))
+		vbox.add_child(ammo_label)
+
 		card.add_child(vbox)
 		cards_container.add_child(card)
-		_player_cards[p_id] = card
+		
+		# Cache child references to avoid 16 find_child calls per frame
+		_player_cards[p_id] = {
+			"card": card,
+			"hp_bar": hp_bar,
+			"info_label": info_label,
+			"comp_label": comp_label,
+			"abil_label": abil_label,
+			"ammo_label": ammo_label
+		}
 
 ## Updates HP, device connection, distance labels, drone states, battery, and squad vision summary
 func _update_hud_state() -> void:
@@ -170,24 +263,30 @@ func _update_hud_state() -> void:
 	var centroid: Vector3 = player_manager.get_squad_centroid()
 
 	for p_id: int in range(1, 5):
-		var card: PanelContainer = _player_cards.get(p_id, null) as PanelContainer
+		var card_data: Dictionary = _player_cards.get(p_id, {})
+		if card_data.is_empty():
+			continue
+
+		var card: PanelContainer = card_data.get("card", null) as PanelContainer
 		if card == null:
 			continue
 
 		var op: OperatorBase = player_manager.get_operator(p_id)
 		if op != null and is_instance_valid(op):
 			card.visible = true
-			var hp_bar: ProgressBar = card.find_child("HPBar", true, false) as ProgressBar
+			var hp_bar: ProgressBar = card_data.get("hp_bar", null) as ProgressBar
 			if hp_bar != null:
 				hp_bar.value = op.health_current
 				hp_bar.max_value = op.health_max
 				
-				if op.is_incapacitated:
+				if op.is_dead:
+					hp_bar.modulate = Color(0.4, 0.4, 0.4)
+				elif op.is_incapacitated:
 					hp_bar.modulate = Color(0.5, 0.2, 0.2)
 				else:
 					hp_bar.modulate = Color(1.0, 1.0, 1.0)
 
-			var info_label: Label = card.find_child("InfoLabel", true, false) as Label
+			var info_label: Label = card_data.get("info_label", null) as Label
 			if info_label != null:
 				var dist: float = op.global_position.distance_to(centroid)
 				var dev_name: String = "Keyboard"
@@ -198,7 +297,9 @@ func _update_hud_state() -> void:
 				
 				# Get drone active mode status
 				var status_str: String = "ESCORT"
-				if op.is_incapacitated:
+				if op.is_dead:
+					status_str = "DEAD"
+				elif op.is_incapacitated:
 					status_str = "DOWN"
 				elif not op.has_drone_active:
 					status_str = "DRONE_LOST"
@@ -216,7 +317,7 @@ func _update_hud_state() -> void:
 				info_label.text = "%s | %s | %.1fm | BAT: %d%%" % [dev_name, status_str, dist, int(op.battery_current)]
 
 			## Update COMPONENTS label (Etapa 7)
-			var comp_label: Label = card.find_child("ComponentsLabel", true, false) as Label
+			var comp_label: Label = card_data.get("comp_label", null) as Label
 			if comp_label != null:
 				var comp_amt: int = op.get_maintenance_components()
 				var comp_cap: int = op.get_inventory_capacity()
@@ -226,7 +327,7 @@ func _update_hud_state() -> void:
 				comp_label.add_theme_color_override("font_color", Color(0.3 + fill_ratio * 0.6, 0.9 - fill_ratio * 0.3, 0.55 - fill_ratio * 0.4))
 
 			## Update ABILITY label (Etapa 8)
-			var abil_label: Label = card.find_child("AbilityLabel", true, false) as Label
+			var abil_label: Label = card_data.get("abil_label", null) as Label
 			if abil_label != null:
 				if op.role != null:
 					var r: OperatorRole = op.role
@@ -246,6 +347,17 @@ func _update_hud_state() -> void:
 				else:
 					abil_label.text = "ABIL: NONE"
 					abil_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+
+			## Update AMMO label (Weapon System Gen 1)
+			var ammo_label: Label = card_data.get("ammo_label", null) as Label
+			if ammo_label != null:
+				ammo_label.text = op.get_ammo_status_text()
+				if op.is_weapon_out_of_ammo():
+					ammo_label.add_theme_color_override("font_color", Color(0.95, 0.3, 0.3))
+				elif op.is_weapon_reloading():
+					ammo_label.add_theme_color_override("font_color", Color(0.95, 0.7, 0.2))
+				else:
+					ammo_label.add_theme_color_override("font_color", Color(0.85, 0.9, 0.95))
 		else:
 			card.visible = false
 
@@ -259,13 +371,18 @@ func _build_core_strip() -> void:
 	var strip: HBoxContainer = HBoxContainer.new()
 	strip.name = "CoreStrip"
 	strip.add_theme_constant_override("separation", 8)
+	_core_strip = strip
+	## Hidden until a player enters a terminal capture zone (dynamic widget).
+	strip.visible = false
 
-	## Label: static title
+	## Label: terminal title (dynamic — "TERMINAL A", "TERMINAL B", ...)
 	var title: Label = Label.new()
+	title.name = "CoreTitleLabel"
 	title.text = "◈ CORE:"
 	title.add_theme_font_size_override("font_size", 12)
 	title.add_theme_color_override("font_color", Color(0.55, 0.65, 0.75))
 	strip.add_child(title)
+	_core_title_label = title
 
 	## State label
 	_core_state_label = Label.new()

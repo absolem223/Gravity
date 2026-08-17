@@ -28,5 +28,7 @@ Toda mecánica, sistema, habilidad, interfaz o comportamiento de juego en GRAVIT
 - La interacción con el entorno (puertas, hackeo de terminales, cobertura destructible) altera dinámicamente la topología del combate.
 
 ### 5. La cooperación supera al héroe individual
-- No existen "héroes solitarios" capaces de eliminar a la escuadra enemiga mediante puntería pura (*aim bot / lone wolf*).
-- Las mecánicas de supresión, hackeo defensivo y cobertura cruzada garantizan que una escuadra coordinada venza siempre al jugador individual más hábil mecánicamente.
+- No existen "héroes solitarios" capaces de ganar una partida por sí solos: la escuadra coordinada vence siempre al jugador individual más hábil mecánicamente.
+- El control del Núcleo, la supresión, el hackeo defensivo y la cobertura cruzada son los factores determinantes del resultado, por encima del rendimiento individual de puntería.
+- El asistente de puntería (autoaim) es una mecánica de accesibilidad y de control local para 4 jugadores en el mismo dispositivo. Al ser provisto por el exoesqueleto / doctrina de cada operador, **todos** los jugadores humanos tienen acceso a él, por lo que no introduce ventaja asimétrica entre ellos.
+- El autoaim no reemplaza la decisión táctica: depende del rango permitido del arma, la línea de visión, el cooldown de fuego y la elección de objetivo del jugador, y no sustituye el valor de la información (Pilar 1), la simbiosis con el dron (Pilar 2) ni el control territorial del Núcleo (Pilar 3).

@@ -105,17 +105,26 @@ func _spawn_salvage_pickups(salvager_id: int, yield_amount: int) -> void:
 	if parent == null:
 		return
 
+	var rm: ResourceManager = null
+	var rm_nodes: Array[Node] = get_tree().get_nodes_in_group("resource_manager")
+	if not rm_nodes.is_empty():
+		rm = rm_nodes[0] as ResourceManager
+
 	## Split components into 2 pickups for interesting collection gameplay
 	var pickup_a: ResourcePickup = ResourcePickup.new()
 	pickup_a.resource_type = ResourceInventory.TYPE_MAINTENANCE
 	pickup_a.amount = yield_amount / 2
-	pickup_a.global_position = global_position + Vector3(-0.6, 0.3, 0.0)
 	parent.add_child(pickup_a)
+	pickup_a.global_position = global_position + Vector3(-0.6, 0.3, 0.0)
+	if rm != null:
+		rm.register_pickup(pickup_a)
 
 	var pickup_b: ResourcePickup = ResourcePickup.new()
 	pickup_b.resource_type = ResourceInventory.TYPE_MAINTENANCE
 	pickup_b.amount = yield_amount - (yield_amount / 2)
-	pickup_b.global_position = global_position + Vector3(0.6, 0.3, 0.0)
 	parent.add_child(pickup_b)
+	pickup_b.global_position = global_position + Vector3(0.6, 0.3, 0.0)
+	if rm != null:
+		rm.register_pickup(pickup_b)
 
 	print("[WreckSalvage] Spawned 2 salvage pickups for P%d (total %d)" % [salvager_id, yield_amount])

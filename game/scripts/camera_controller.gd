@@ -16,10 +16,15 @@ extends Node3D
 @export var min_zoom_distance: float = 12.0
 
 ## Maximum height/distance offset for farthest camera zoom (when players separate)
-@export var max_zoom_distance: float = 28.0
+@export var max_zoom_distance: float = 50.0
 
 ## Padding factor applied to player group bounding box to trigger zoom
 @export var bounding_box_padding: float = 6.0
+
+## Maximum spread (meters) that contributes to zoom. A piloted drone that flies
+## far from the squad inflates the bounding box; capping this keeps the shared
+## viewport reasonably framed on the squad instead of zooming all the way out.
+@export var max_framing_spread: float = 30.0
 
 ## Smoothing speed for camera position movement (lerp weight factor)
 @export var follow_speed: float = 6.0
@@ -57,10 +62,9 @@ func _find_targets_in_group() -> void:
 
 ## Configures initial rotation and camera hierarchy
 func _setup_camera_transform() -> void:
-	# Set controller pitch angle
-	rotation_degrees.x = -pitch_angle_degrees
-	rotation_degrees.y = 0.0
-	rotation_degrees.z = 0.0
+	# Base top-down/isometric pitch. The shared camera keeps this fixed pose:
+	# it is framed by player positions (centroid/zoom), never by input.
+	rotation_degrees = Vector3(-pitch_angle_degrees, 0.0, 0.0)
 	
 	if camera == null:
 		# Auto-instantiate Camera3D if child node is missing in scene
@@ -93,7 +97,7 @@ func _update_centroid_and_zoom() -> void:
 		# Calculate maximum spread distance along X and Z axes
 		var spread_x: float = max_pos.x - min_pos.x
 		var spread_z: float = max_pos.z - min_pos.z
-		var max_spread: float = max(spread_x, spread_z) + bounding_box_padding
+		var max_spread: float = minf(max(spread_x, spread_z), max_framing_spread) + bounding_box_padding
 
 		# Map spread to zoom distance range
 		var target_zoom: float = min_zoom_distance + (max_spread * 0.8)
@@ -108,6 +112,10 @@ func _apply_smooth_transform(delta: float) -> void:
 	if camera != null:
 		var target_cam_pos: Vector3 = Vector3(0.0, 0.0, _current_zoom_distance)
 		camera.position = camera.position.lerp(target_cam_pos, zoom_speed * delta)
+
+	# Keep the fixed top-down isometric pitch. The camera is framed by player
+	# positions (centroid/zoom) only; no input ever rotates it.
+	rotation_degrees = Vector3(-pitch_angle_degrees, 0.0, 0.0)
 
 ## Register a new target (e.g. Drone in Pilot Mode or Objective Marker)
 func add_target(new_target: Node3D) -> void:

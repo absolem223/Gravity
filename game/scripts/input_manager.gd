@@ -1,6 +1,10 @@
 # input_manager.gd
-# Technical Rationale: Refined input management system for 2-4 local players.
-# Encapsulates player device profiles (PlayerInputProfile) and manages gamepad hotplugging dynamically.
+# Technical Rationale: Per-scene query gateway between gameplay and the definitive
+# InputProfile system. All gameplay input reads (movement vector, pressed, just
+# pressed) are delegated to the per-player InputProfile owned by the GameConfig
+# autoload. Gameplay NEVER queries keys, InputMap actions, or devices directly.
+# The PlayerInputProfile inner class and get_profile() are retained purely for the
+# SquadHUD device label; the authoritative input data lives in GameConfig profiles.
 # Adheres to ADR-0001 (GDScript 2.x Strict Typing).
 
 class_name InputManager
@@ -9,18 +13,17 @@ extends Node
 ## Signals
 signal device_connection_changed(player_id: int, connected: bool)
 
-## Number of supported local players in Vertical Slice
+## Number of supported local players.
 const MAX_PLAYERS: int = 4
 
-## Inner data class representing a player's input hardware profile
+## Lightweight device info copy fed to the SquadHUD (read-only label).
 class PlayerInputProfile:
 	enum DeviceType { KEYBOARD_MOUSE, GAMEPAD, UNASSIGNED }
 
 	var player_id: int = 1
-	var device_id: int = -1 # -1 = Keyboard/Mouse, 0+ = Gamepad Device ID
+	var device_id: int = -1
 	var device_type: DeviceType = DeviceType.KEYBOARD_MOUSE
 	var is_connected: bool = true
-	var role_name_placeholder: String = "Operator"
 
 	func get_device_name() -> String:
 		match device_type:
@@ -31,182 +34,119 @@ class PlayerInputProfile:
 			_:
 				return "Disconnected"
 
-## Registry of active player profiles indexed by Player ID (1..4)
+## Mirror profiles indexed by Player ID (1..4) — UI/HUD display only.
 var _profiles: Dictionary = {}
-
-## Tracks connected Joypads detected by Godot OS layer
-var _connected_joypads: Array[int] = []
 
 func _ready() -> void:
 	_initialize_profiles()
 	_detect_joypads()
 	Input.joy_connection_changed.connect(_on_joy_connection_changed)
-	_setup_default_input_map()
+	# Debug-only probe binding for the sandbox Action System probe (non-gameplay). The
+	# actual gameplay actions are resolved through profiles, never through the InputMap.
+	_bind_key("debug_action_system", KEY_F12)
 
-## Creates initial default profiles for players 1 to 4
+func _process(_delta: float) -> void:
+	var cfg: Node = _config()
+	if cfg == null:
+		return
+	for p_id: int in range(1, MAX_PLAYERS + 1):
+		var prof: InputProfile = cfg.call("get_profile", p_id) as InputProfile
+		if prof != null:
+			prof.poll_frame()
+
+## ── Resolution ─────────────────────────────────────────────────────────────
+## Locates the authoritative GameConfig autoload (profiles + slots).
+func _config() -> Node:
+	if get_tree() == null:
+		return null
+	return get_tree().root.get_node_or_null("GameConfig")
+
+## ── Player device mirror (HUD-facing) ─────────────────────────────────────
 func _initialize_profiles() -> void:
 	_profiles.clear()
-	var role_names: Array[String] = ["Recon", "Vanguard", "Tech Disruptor", "Field Engineer"]
-	
 	for p_id: int in range(1, MAX_PLAYERS + 1):
 		var profile: PlayerInputProfile = PlayerInputProfile.new()
 		profile.player_id = p_id
-		profile.role_name_placeholder = role_names[p_id - 1]
 		_profiles[p_id] = profile
 
-## Detects currently connected controllers at launch
+## Refreshes the HUD-facing device mirror from the authoritative profiles.
+func _sync_device_mirrors() -> void:
+	var cfg: Node = _config()
+	for p_id: int in range(1, MAX_PLAYERS + 1):
+		var mirror: PlayerInputProfile = _profiles.get(p_id) as PlayerInputProfile
+		if mirror == null:
+			continue
+		var prof: InputProfile = cfg.call("get_profile", p_id) as InputProfile if cfg != null else null
+		if prof == null:
+			mirror.device_type = PlayerInputProfile.DeviceType.KEYBOARD_MOUSE
+			continue
+		if prof.is_keyboard():
+			mirror.device_type = PlayerInputProfile.DeviceType.KEYBOARD_MOUSE
+			mirror.device_id = -1
+		else:
+			var dev: int = prof.get_joy_device_id()
+			mirror.device_type = PlayerInputProfile.DeviceType.GAMEPAD
+			mirror.device_id = dev
+			mirror.is_connected = dev >= 0
+		mirror.is_connected = true
+
 func _detect_joypads() -> void:
-	_connected_joypads.clear()
-	var joypads: Array[int] = Input.get_connected_joypads()
-	for joy_id: int in joypads:
-		_connected_joypads.append(joy_id)
-	_auto_assign_devices()
+	_sync_device_mirrors()
 
-## Callback when a gamepad is plugged in or unplugged
 func _on_joy_connection_changed(device_id: int, connected: bool) -> void:
-	if connected:
-		if not _connected_joypads.has(device_id):
-			_connected_joypads.append(device_id)
-	else:
-		_connected_joypads.erase(device_id)
-	
-	_auto_assign_devices()
+	_sync_device_mirrors()
+	for p_id: int in range(1, MAX_PLAYERS + 1):
+		var mirror: PlayerInputProfile = _profiles.get(p_id) as PlayerInputProfile
+		if mirror != null:
+			device_connection_changed.emit(p_id, mirror.is_connected)
 
-## Automatically assigns available controllers to players 1-4
-func _auto_assign_devices() -> void:
-	var p1_prof: PlayerInputProfile = _profiles.get(1)
-	if p1_prof != null:
-		p1_prof.device_id = -1
-		p1_prof.device_type = PlayerInputProfile.DeviceType.KEYBOARD_MOUSE
-		p1_prof.is_connected = true
+## ── Gameplay query facade (delegates to authoritative profiles) ──────────
+func get_profile(player_id: int) -> PlayerInputProfile:
+	_sync_device_mirrors()
+	return _profiles.get(player_id, null) as PlayerInputProfile
 
-	for i: int in range(0, 3):
-		var p_id: int = i + 2
-		var prof: PlayerInputProfile = _profiles.get(p_id)
-		if prof != null:
-			if i < _connected_joypads.size():
-				prof.device_id = _connected_joypads[i]
-				prof.device_type = PlayerInputProfile.DeviceType.GAMEPAD
-				prof.is_connected = true
-			else:
-				prof.device_id = -1
-				prof.device_type = PlayerInputProfile.DeviceType.KEYBOARD_MOUSE
-				prof.is_connected = true
-			device_connection_changed.emit(p_id, prof.is_connected)
+## Returns the 2D normalized movement vector for a player (keyboard/D-pad/stick).
+func get_movement_vector(player_id: int) -> Vector2:
+	var cfg: Node = _config()
+	var prof: InputProfile = cfg.call("get_profile", player_id) as InputProfile if cfg != null else null
+	if prof != null:
+		return prof.get_movement_vector()
+	return Vector2.ZERO
 
-## Configures InputMap programmatically for 4 players
-func _setup_default_input_map() -> void:
-	for player_id: int in range(1, MAX_PLAYERS + 1):
-		_ensure_player_action(player_id, "move_left")
-		_ensure_player_action(player_id, "move_right")
-		_ensure_player_action(player_id, "move_up")
-		_ensure_player_action(player_id, "move_down")
-		_ensure_player_action(player_id, "fire")
-		_ensure_player_action(player_id, "interact")
-		_ensure_player_action(player_id, "drone_mode")
-		_ensure_player_action(player_id, "ability")
+## Returns the 2D aim vector for a player from the joystick right-stick actions.
+## The aim vector is isolated from movement: deflecting the right stick never
+## affects get_movement_vector() and vice versa.
+func get_aim_vector(player_id: int) -> Vector2:
+	var cfg: Node = _config()
+	var prof: InputProfile = cfg.call("get_profile", player_id) as InputProfile if cfg != null else null
+	if prof != null:
+		return prof.get_aim_vector()
+	return Vector2.ZERO
 
-func _ensure_player_action(player_id: int, action_suffix: String) -> void:
-	var action_name: String = "p%d_%s" % [player_id, action_suffix]
+## True while the given action is held for the player.
+func is_action_pressed(player_id: int, action_suffix: String) -> bool:
+	var cfg: Node = _config()
+	var prof: InputProfile = cfg.call("get_profile", player_id) as InputProfile if cfg != null else null
+	if prof != null:
+		return prof.is_action_pressed(action_suffix)
+	return false
+
+## True on the exact frame the action was pressed (edge detected via polling).
+func is_action_just_pressed(player_id: int, action_suffix: String) -> bool:
+	var cfg: Node = _config()
+	var prof: InputProfile = cfg.call("get_profile", player_id) as InputProfile if cfg != null else null
+	if prof != null:
+		return prof.is_action_just_pressed(action_suffix)
+	return false
+
+## ── Debug InputMap helper (sandbox Action System probe only) ──────────────
+func _bind_key(action_name: String, keycode: Key) -> void:
 	if not InputMap.has_action(action_name):
 		InputMap.add_action(action_name)
-
-## Retrieves profile for specified player ID
-func get_profile(player_id: int) -> PlayerInputProfile:
-	return _profiles.get(player_id, null)
-
-## Returns 2D normalized movement vector for specified player ID
-func get_movement_vector(player_id: int) -> Vector2:
-	var left_action: String = "p%d_move_left" % player_id
-	var right_action: String = "p%d_move_right" % player_id
-	var up_action: String = "p%d_move_up" % player_id
-	var down_action: String = "p%d_move_down" % player_id
-
-	var input_vec: Vector2 = Input.get_vector(left_action, right_action, up_action, down_action)
-
-	var profile: PlayerInputProfile = get_profile(player_id)
-	if profile != null and profile.device_type == PlayerInputProfile.DeviceType.GAMEPAD and profile.device_id >= 0:
-		var joy_x: float = Input.get_joy_axis(profile.device_id, JOY_AXIS_LEFT_X)
-		var joy_y: float = Input.get_joy_axis(profile.device_id, JOY_AXIS_LEFT_Y)
-		var joy_vec: Vector2 = Vector2(joy_x, joy_y)
-		if joy_vec.length() > 0.2:
-			input_vec = joy_vec
-
-	if input_vec == Vector2.ZERO:
-		input_vec = _read_fallback_keyboard_vector(player_id)
-
-	return input_vec.normalized() if input_vec.length() > 1.0 else input_vec
-
-## Fallback mapping for testing 4 players on a single keyboard
-func _read_fallback_keyboard_vector(player_id: int) -> Vector2:
-	var vec: Vector2 = Vector2.ZERO
-	match player_id:
-		1: # WASD
-			if Input.is_key_pressed(KEY_A): vec.x -= 1.0
-			if Input.is_key_pressed(KEY_D): vec.x += 1.0
-			if Input.is_key_pressed(KEY_W): vec.y -= 1.0
-			if Input.is_key_pressed(KEY_S): vec.y += 1.0
-		2: # IJKL
-			if Input.is_key_pressed(KEY_J): vec.x -= 1.0
-			if Input.is_key_pressed(KEY_L): vec.x += 1.0
-			if Input.is_key_pressed(KEY_I): vec.y -= 1.0
-			if Input.is_key_pressed(KEY_K): vec.y += 1.0
-		3: # Arrow Keys
-			if Input.is_key_pressed(KEY_LEFT): vec.x -= 1.0
-			if Input.is_key_pressed(KEY_RIGHT): vec.x += 1.0
-			if Input.is_key_pressed(KEY_UP): vec.y -= 1.0
-			if Input.is_key_pressed(KEY_DOWN): vec.y += 1.0
-		4: # Numpad 4568
-			if Input.is_key_pressed(KEY_KP_4): vec.x -= 1.0
-			if Input.is_key_pressed(KEY_KP_6): vec.x += 1.0
-			if Input.is_key_pressed(KEY_KP_8): vec.y -= 1.0
-			if Input.is_key_pressed(KEY_KP_5): vec.y += 1.0
-	return vec
-
-## Checks if specified action is currently pressed (held down) for player ID
-func is_action_pressed(player_id: int, action_suffix: String) -> bool:
-	var action_name: String = "p%d_%s" % [player_id, action_suffix]
-	if InputMap.has_action(action_name) and Input.is_action_pressed(action_name):
-		return true
-
-	# Check gamepad trigger or button if profile is Gamepad
-	var profile: PlayerInputProfile = get_profile(player_id)
-	if profile != null and profile.device_type == PlayerInputProfile.DeviceType.GAMEPAD and profile.device_id >= 0:
-		if action_suffix == "fire":
-			if Input.is_joy_button_pressed(profile.device_id, JOY_BUTTON_RIGHT_SHOULDER) or Input.get_joy_axis(profile.device_id, JOY_AXIS_TRIGGER_RIGHT) > 0.5:
-				return true
-		elif action_suffix == "ability":
-			if Input.is_joy_button_pressed(profile.device_id, JOY_BUTTON_LEFT_SHOULDER) or Input.get_joy_axis(profile.device_id, JOY_AXIS_TRIGGER_LEFT) > 0.5:
-				return true
-
-	# Keyboard fallback shortcuts for testing fire / ability action:
-	if action_suffix == "fire":
-		match player_id:
-			1: return Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_E) or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
-			2: return Input.is_key_pressed(KEY_U) or Input.is_key_pressed(KEY_O)
-			3: return Input.is_key_pressed(KEY_SLASH) or Input.is_key_pressed(KEY_SHIFT)
-			4: return Input.is_key_pressed(KEY_KP_0) or Input.is_key_pressed(KEY_KP_ENTER)
-	elif action_suffix == "ability":
-		match player_id:
-			1: return Input.is_key_pressed(KEY_F) or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
-			2: return Input.is_key_pressed(KEY_H)
-			3: return Input.is_key_pressed(KEY_PERIOD)
-			4: return Input.is_key_pressed(KEY_KP_7)
-
-	return false
-
-## Checks if specified action was pressed this frame for player ID
-func is_action_just_pressed(player_id: int, action_suffix: String) -> bool:
-	var action_name: String = "p%d_%s" % [player_id, action_suffix]
-	if InputMap.has_action(action_name) and Input.is_action_just_pressed(action_name):
-		return true
-
-	# Fallback just pressed logic for keyboard test triggers:
-	if action_suffix == "ability":
-		match player_id:
-			1: return Input.is_key_pressed(KEY_F) and Input.is_action_just_pressed(action_name) # simplified
-			2: return Input.is_key_pressed(KEY_H) and Input.is_action_just_pressed(action_name)
-			3: return Input.is_key_pressed(KEY_PERIOD) and Input.is_action_just_pressed(action_name)
-			4: return Input.is_key_pressed(KEY_KP_7) and Input.is_action_just_pressed(action_name)
-
-	return false
+	var existing: Array[InputEvent] = InputMap.action_get_events(action_name)
+	for ev: InputEvent in existing:
+		if ev is InputEventKey:
+			InputMap.action_erase_event(action_name, ev)
+	var ev: InputEventKey = InputEventKey.new()
+	ev.keycode = keycode
+	InputMap.action_add_event(action_name, ev)

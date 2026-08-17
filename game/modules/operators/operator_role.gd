@@ -27,6 +27,10 @@ signal cooldown_tick(remaining: float)
 ## ──────────────────────────────────────────────
 @export_range(0.0, 60.0, 0.5) var ability_cooldown: float = 10.0
 
+## True when the ability damages/disrupts enemies. Offensive abilities are
+## blocked while the operator stands inside its protected spawn room.
+@export var is_offensive_ability: bool = false
+
 ## ──────────────────────────────────────────────
 ## RUNTIME STATE
 ## ──────────────────────────────────────────────
@@ -72,6 +76,8 @@ func try_activate_ability() -> bool:
 	if not _is_ready or _operator == null:
 		return false
 	if _operator.is_incapacitated:
+		return false
+	if is_offensive_ability and _operator.is_in_spawn_zone():
 		return false
 	_activate_ability()
 	_start_cooldown()

@@ -108,6 +108,12 @@ func _update_detection_states(current_scan_hits: Array[Node3D]) -> void:
 	var i: int = _detected_targets.size() - 1
 	while i >= 0:
 		var old_target: Node3D = _detected_targets[i]
+		# Guard against targets freed while still tracked (e.g. a drone destroyed
+		# while detected, or a despawned operator). Drop them without emitting.
+		if not is_instance_valid(old_target):
+			_detected_targets.remove_at(i)
+			i -= 1
+			continue
 		if not current_scan_hits.has(old_target):
 			_detected_targets.remove_at(i)
 			target_lost.emit(old_target)

@@ -28,6 +28,7 @@ func _ready() -> void:
 	description      = "Space denial specialist. EMP disables enemy drones."
 	icon_placeholder = "⚡"
 	ability_cooldown = 15.0
+	is_offensive_ability = true
 	super._ready()
 
 func _process(delta: float) -> void:
@@ -111,9 +112,11 @@ func _trigger_emp_flash() -> void:
 	mat.emission = Color(0.2, 0.6, 1.0)
 	mat.emission_energy_multiplier = 2.0
 	_emp_sphere_placeholder.material_override = mat
-	_emp_sphere_placeholder.global_position = _operator.global_position
 
 	_operator.get_parent().add_child(_emp_sphere_placeholder)
+	# After add_child so the node is inside the tree before global_position is read
+	# (setting global_position on an unstree'd Node3D is an engine error).
+	_emp_sphere_placeholder.global_position = _operator.global_position
 	_emp_flash_timer = EMP_FLASH_DURATION
 
 func _process_emp_flash(delta: float) -> void:

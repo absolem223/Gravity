@@ -1,6 +1,6 @@
 # recon_operator.gd
 # Technical Rationale: Recon operator role. Specialises in information gathering.
-# Passives: VisionCone3D view_range +25% (16m → 20m), FOV +25% (90° → 112.5°),
+# Passives: VisionCone3D view_range +25% (32m → 40m), FOV +25% (90° → 112.5°),
 #           scan_interval halved (0.1s → 0.05s) for more frequent target updates.
 # Active ability: MARK TARGETS — all currently detected targets are "pinged" into
 #           SquadVisionRegistry with a 5s persistence timer, visible to all squad members
@@ -12,7 +12,7 @@ class_name ReconOperator
 extends OperatorRole
 
 ## Passive vision enhancement constants
-const VISION_RANGE_BONUS_MULTIPLIER: float  = 1.25   ## +25% range (16m → 20m)
+const VISION_RANGE_BONUS_MULTIPLIER: float  = 1.25   ## +25% range (32m → 40m)
 const VISION_FOV_BONUS_MULTIPLIER: float    = 1.25   ## +25% FOV  (90° → 112.5°)
 const SCAN_INTERVAL_MULTIPLIER: float       = 0.5    ## Twice as frequent scans
 

@@ -114,17 +114,31 @@ func get_hacking_team() -> int:
 func get_owning_team() -> int:
 	return owning_team_id
 
-## Returns presence count for a given team
+## Returns presence count for a given team (only counts active, non-dead operators)
 func get_team_presence_count(team_id: int) -> int:
-	if _team_presence.has(team_id):
-		return _team_presence[team_id].size()
-	return 0
+	if not _team_presence.has(team_id):
+		return 0
+	var pm: PlayerManager = null
+	if is_inside_tree():
+		var pm_nodes: Array[Node] = get_tree().get_nodes_in_group("player_manager")
+		if not pm_nodes.is_empty():
+			pm = pm_nodes[0] as PlayerManager
+	
+	var active_count: int = 0
+	for op_id: int in _team_presence[team_id].keys():
+		if pm != null:
+			var op: OperatorBase = pm.get_operator(op_id)
+			if op != null and not op.is_dead and not op.is_incapacitated:
+				active_count += 1
+		else:
+			active_count += 1
+	return active_count
 
 ## Returns array of all teams with presence in the perimeter
 func get_present_teams() -> Array[int]:
 	var teams: Array[int] = []
 	for k: int in _team_presence.keys():
-		if _team_presence[k].size() >= min_operators_to_contest:
+		if get_team_presence_count(k) >= min_operators_to_contest:
 			teams.append(k)
 	return teams
 
@@ -132,24 +146,41 @@ func get_present_teams() -> Array[int]:
 ## STATE EVALUATION LOGIC
 ## ──────────────────────────────────────────────
 
-## Determines which state should be active based on perimeter presence
+## Determines which state should be active based on perimeter presence.
+## A CAPTURED core stays captured while its owner is present, but a RIVAL team
+## entering the perimeter can re-capture it: the hack restarts from 0% and the
+## owner changes once the rival reaches the threshold (Supremacy reset rule).
 func _evaluate_state() -> void:
-	if current_state == CoreState.CAPTURED:
-		return  ## Terminal state — no reevaluation
-
 	var present_teams: Array[int] = get_present_teams()
 	var team_count: int = present_teams.size()
 
 	if team_count == 0:
 		## No teams present
+		if current_state == CoreState.CAPTURED:
+			return  ## Captured cores persist with no presence
 		if hack_progress > 0.0 and current_state != CoreState.IDLE:
 			## Progress exists — must degrade
 			current_state = CoreState.DEGRADED
 		else:
 			current_state = CoreState.IDLE
 			hacking_team_id = -1
+		return
 
-	elif team_count == 1:
+	if current_state == CoreState.CAPTURED:
+		## Owning team present alone -> stays captured.
+		if team_count == 1 and present_teams[0] == owning_team_id:
+			return
+		## Owner + rival (or pure rival): re-capture is now possible.
+		if team_count >= 2:
+			current_state = CoreState.CONTESTED
+		else:
+			## A single rival team starts a fresh re-hack from 0%.
+			hack_progress = 0.0
+			hacking_team_id = present_teams[0]
+			current_state = CoreState.HACKING
+		return
+
+	if team_count == 1:
 		## One team controls — HACKING
 		hacking_team_id = present_teams[0]
 		current_state = CoreState.HACKING

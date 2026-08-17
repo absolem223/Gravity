@@ -16,6 +16,8 @@ signal hack_contested
 signal hack_degrading(progress: float)
 signal hack_completed(team_id: int)
 signal ownership_changed(new_owner_team: int)
+signal state_changed(state: HackController.CoreState)
+signal presence_changed(active: bool)
 
 ## ──────────────────────────────────────────────
 ## EXPORTED CONFIGURATION (forwarded to child modules)
@@ -36,6 +38,20 @@ signal ownership_changed(new_owner_team: int)
 ## Perimeter physical size (XZ half-extents in meters)
 @export var perimeter_size: Vector3 = Vector3(10.0, 3.0, 10.0)
 
+## Unique objective identifier (empty for single-core sandbox usage).
+@export var terminal_id: String = ""
+
+## Display name shown by the HUD ("Terminal A", "Terminal B", ...).
+@export var terminal_display_name: String = "TERMINAL"
+
+## Build the self-contained CoreStatusDisplay panel. Disable when a central
+## HUD widget (SquadHUD) is responsible for showing terminal progress.
+@export var build_status_display: bool = true
+
+## Build the module's own glowing core box. Disable when the host terminal
+## already provides its own visual core mesh (bound via bind_core_visual()).
+@export var build_core_visual: bool = true
+
 ## ──────────────────────────────────────────────
 ## CHILD MODULE REFERENCES
 ## ──────────────────────────────────────────────
@@ -45,6 +61,10 @@ var status_display: CoreStatusDisplay = null
 
 ## Optional: visual mesh for the Core itself (placeholder)
 var _core_mesh: MeshInstance3D = null
+
+## Runtime state tracking for state_changed / presence_changed emission.
+var _last_state: HackController.CoreState = HackController.CoreState.IDLE
+var _last_presence: bool = false
 
 ## ──────────────────────────────────────────────
 ## LIFECYCLE
@@ -65,7 +85,16 @@ func _process(_delta: float) -> void:
 	if hack_controller != null and status_display != null:
 		if hack_controller.get_current_state() == HackController.CoreState.IDLE:
 			status_display.on_state_idle()
-
+	## Emit state/presence transitions for TerminalManager + HUD
+	if hack_controller != null:
+		var state: HackController.CoreState = hack_controller.get_current_state()
+		if state != _last_state:
+			_last_state = state
+			state_changed.emit(state)
+		var present: bool = hack_controller.get_present_teams().size() > 0
+		if present != _last_presence:
+			_last_presence = present
+			presence_changed.emit(present)
 ## ──────────────────────────────────────────────
 ## MODULE CONSTRUCTION
 ## ──────────────────────────────────────────────
@@ -77,7 +106,6 @@ func _build_hack_controller() -> void:
 	hack_controller.degradation_percent_per_tick = degradation_percent_per_tick
 	hack_controller.degradation_interval_seconds = degradation_interval_seconds
 	hack_controller.capture_threshold_percent = capture_threshold_percent
-	add_to_group("hack_controller")           ## Self-register for CoreCaptureZone auto-discovery
 	add_child(hack_controller)
 	hack_controller.add_to_group("hack_controller")
 
@@ -98,6 +126,8 @@ func _build_capture_zone() -> void:
 	capture_zone.set_hack_controller(hack_controller)
 
 func _build_core_visual() -> void:
+	if not build_core_visual:
+		return
 	## Placeholder visual: glowing box representing the Core terminal
 	_core_mesh = MeshInstance3D.new()
 	_core_mesh.name = "CoreMesh"
@@ -117,6 +147,8 @@ func _build_core_visual() -> void:
 	add_child(_core_mesh)
 
 func _build_status_display() -> void:
+	if not build_status_display:
+		return
 	status_display = CoreStatusDisplay.new()
 	status_display.name = "CoreStatusDisplay"
 	status_display.hack_controller = hack_controller
@@ -172,10 +204,14 @@ func _update_core_visual_captured() -> void:
 	if _core_mesh == null:
 		return
 	var mat: StandardMaterial3D = _core_mesh.material_override as StandardMaterial3D
-	if mat != null:
-		mat.albedo_color = Color(0.2, 0.95, 0.5)
-		mat.emission = Color(0.1, 0.6, 0.3)
-		mat.emission_energy_multiplier = 3.0
+	if mat == null:
+		## Bound external mesh: create an override so capture feedback tints it.
+		mat = StandardMaterial3D.new()
+		mat.emission_enabled = true
+		_core_mesh.material_override = mat
+	mat.albedo_color = Color(0.2, 0.95, 0.5)
+	mat.emission = Color(0.1, 0.6, 0.3)
+	mat.emission_energy_multiplier = 3.0
 
 ## ──────────────────────────────────────────────
 ## PUBLIC API (facade over HackController)
@@ -192,3 +228,8 @@ func get_hacking_team() -> int:
 
 func get_owning_team() -> int:
 	return hack_controller.get_owning_team() if hack_controller != null else -1
+
+## Binds an external core mesh (e.g. the terminal's own emissive core) so the
+## capture color feedback is applied to the host terminal instead of a local box.
+func bind_core_visual(mesh: MeshInstance3D) -> void:
+	_core_mesh = mesh

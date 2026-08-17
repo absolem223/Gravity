@@ -1,0 +1,2876 @@
+# GRAVITY — Core Systems Code Dump
+# 2026-08-03
+
+
+============================================================
+# modules\operator\operator_base.gd
+============================================================
+# operator_base.gd
+# Technical Rationale: Base class for all 4 operator prototypes.
+# Implements CharacterBody3D locomotion, 8-direction movement, orientation, health, overhead squad badge,
+# hitscan combat with cover damage mitigation, VisionCone3D, permanent Drone, shared tactical battery,
+# and ResourceInventory (Etapa 7).
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name OperatorBase
+extends CharacterBody3D
+
+## Signals
+signal health_changed(current_hp: float, max_hp: float)
+signal operator_incapacitated(p_id: int)
+signal weapon_fired(origin: Vector3, direction: Vector3)
+signal damage_dealt(target: OperatorBase, damage: float, mitigated_by_cover: bool)
+signal drone_status_changed(p_id: int, has_drone: bool, mode: String)
+signal resource_collected(resource_type: String, amount: int)
+
+## Player Slot ID (1 to 4)
+@export_range(1, 4) var player_id: int = 1:
+	set(value):
+		player_id = value
+		_update_player_color()
+		_update_overhead_badge()
+
+## Locomotion Parameters
+@export var move_speed: float = 6.5
+@export var acceleration: float = 26.0
+@export var deceleration: float = 32.0
+@export var rotation_speed: float = 14.0
+
+## Health & Survival Parameters
+@export var health_max: float = 100.0
+@export var separation_warning_distance: float = 12.0
+
+## Combat & Firing Parameters
+@export var base_damage: float = 18.0
+@export var fire_rate: float = 0.25
+@export var weapon_range: float = 20.0
+@export_flags_3d_physics var combat_collision_mask: int = 1
+
+## Permanent Drone Integration
+@export var drone_scene: PackedScene = preload("res://scenes/drone.tscn")
+var drone: DroneBase = null
+var has_drone_active: bool = false
+
+## Shared Tactical Battery (0.0 to 100.0)
+var battery_max: float = 100.0
+var battery_current: float = 100.0
+
+## Current health points
+var health_current: float = 100.0
+
+## Resource Inventory (Etapa 7) — composed at _ready
+var inventory: ResourceInventory = null
+
+## Active Operator Role doctrine (Etapa 8 — composition)
+var role: OperatorRole = null
+
+## Damage mitigation factor (0.0 = none, 0.2 = 20%, etc.)
+var damage_mitigation: float = 0.0
+
+## Team assignment (default 0 = attackers; Etapa 9 will use 1 for defenders)
+var team_id: int = 0
+
+## State Flags
+var is_incapacitated: bool = false
+var is_piloting_drone: bool = false
+var is_separated: bool = false
+
+## Timers
+var _fire_cooldown: float = 0.0
+var _mode_button_press_duration: float = 0.0
+var _is_pressing_mode_button: bool = false
+
+## Sprint / Crouch state
+var is_sprinting: bool = false
+var is_crouching: bool = false
+var _crouch_prev_pressed: bool = false
+
+## Child Components
+@onready var _mesh_instance: MeshInstance3D = $MeshInstance3D if has_node("MeshInstance3D") else null
+@onready var vision_cone: VisionCone3D = $VisionCone3D if has_node("VisionCone3D") else null
+var _overhead_label: Label3D = null
+
+## Reference to InputManager node
+var _input_manager: InputManager = null
+
+const ROLE_LABELS: Array[String] = [
+	"P1 RECON",
+	"P2 VANGUARD",
+	"P3 DISRUPTOR",
+	"P4 ENGINEER"
+]
+
+const SLOT_COLORS: Array[Color] = [
+	Color(0.9, 0.25, 0.25), # P1
+	Color(0.25, 0.5, 0.95), # P2
+	Color(0.25, 0.85, 0.35),# P3
+	Color(0.95, 0.85, 0.25) # P4
+]
+
+func _ready() -> void:
+	add_to_group("players")
+	health_current = health_max
+	_setup_overhead_badge()
+	_setup_vision_cone()
+	_update_player_color()
+	_update_overhead_badge()
+	_setup_inventory()
+	_setup_default_role()
+	
+	# Spawn permanent Drone at launch
+	call_deferred("spawn_drone")
+
+## Dynamically assigns a role doctrine to the operator (Etapa 8 — composition)
+func assign_role(new_role: OperatorRole) -> void:
+	if role != null:
+		role.queue_free()
+	role = new_role
+	if role != null:
+		if not role.is_inside_tree():
+			add_child(role)
+		role.assign_to(self)
+		_update_overhead_badge()
+
+## Configures the default role doctrine based on local Player ID (1: Recon, 2: Vanguard, 3: Disruptor, 4: Engineer)
+func _setup_default_role() -> void:
+	if role != null:
+		return
+	var new_role: OperatorRole = null
+	match player_id:
+		1: new_role = ReconOperator.new()
+		2: new_role = VanguardOperator.new()
+		3: new_role = DisruptorOperator.new()
+		4: new_role = EngineerOperator.new()
+	if new_role != null:
+		assign_role(new_role)
+
+## Initialises the per-operator ResourceInventory
+func _setup_inventory() -> void:
+	inventory = ResourceInventory.new()
+	inventory.name = "ResourceInventory"
+	add_child(inventory)
+	inventory.inventory_changed.connect(_on_inventory_changed)
+
+func _on_inventory_changed(resource_type: String, _current: int, _capacity: int) -> void:
+	## Re-emit so HUD can listen on the operator signal
+	resource_collected.emit(resource_type, _current)
+
+func _physics_process(delta: float) -> void:
+	if _fire_cooldown > 0.0:
+		_fire_cooldown -= delta
+
+	# Slowly recharge battery when drone is destroyed or inactive
+	if not has_drone_active or drone == null:
+		battery_current = minf(battery_max, battery_current + (3.0 * delta))
+
+	if is_incapacitated:
+		_apply_deceleration(delta)
+		move_and_slide()
+		return
+
+	# Handle active ability input check (Etapa 8)
+	if _is_ability_input_just_pressed():
+		if role != null:
+			role.try_activate_ability()
+
+	# Handle Drone Mode inputs (Escort/Stationary/Pilot logic)
+	_process_drone_mode_inputs(delta)
+
+	if is_piloting_drone:
+		_apply_deceleration(delta)
+		move_and_slide()
+		return
+
+	var move_vec: Vector2 = _get_input_direction()
+	_update_sprint_crouch()
+	_process_locomotion(move_vec, delta)
+	move_and_slide()
+
+	# Process Combat Input (Disabled in pilot mode)
+	if _is_firing_input_active() and _fire_cooldown <= 0.0:
+		_execute_tactical_shot()
+
+## Initializes the vision cone
+func _setup_vision_cone() -> void:
+	if vision_cone == null:
+		vision_cone = VisionCone3D.new()
+		vision_cone.name = "VisionCone3D"
+		vision_cone.position = Vector3(0.0, 1.2, 0.0)
+		vision_cone.view_range = 16.0
+		vision_cone.field_of_view_degrees = 90.0
+		add_child(vision_cone)
+
+## Creates 3D overhead badge for squad identification
+func _setup_overhead_badge() -> void:
+	if _overhead_label == null:
+		_overhead_label = Label3D.new()
+		_overhead_label.name = "OverheadBadge"
+		_overhead_label.position = Vector3(0.0, 2.2, 0.0)
+		_overhead_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_overhead_label.no_depth_test = true
+		_overhead_label.font_size = 28
+		_overhead_label.outline_size = 8
+		_overhead_label.outline_render_priority = 1
+		add_child(_overhead_label)
+
+## Spawns the permanent tactical Drone (Gen 1)
+func spawn_drone() -> void:
+	if drone_scene == null or has_drone_active:
+		return
+
+	var drone_instance: DroneBase = drone_scene.instantiate() as DroneBase
+	if drone_instance != null:
+		drone_instance.operator = self
+		drone_instance.position = global_position + Vector3(0.0, 1.6, 1.0)
+		drone_instance.battery_current = battery_current
+		drone_instance.battery_max = battery_max
+		get_parent().add_child(drone_instance)
+		
+		drone = drone_instance
+		has_drone_active = true
+		
+		# Register drone vision cone to squad vision registry
+		var registry_nodes: Array[Node] = get_tree().get_nodes_in_group("squad_vision_registry")
+		if not registry_nodes.is_empty():
+			var reg: SquadVisionRegistry = registry_nodes[0] as SquadVisionRegistry
+			if reg != null and drone.vision_cone != null:
+				reg.register_provider(drone.vision_cone)
+
+		_update_overhead_badge()
+		drone_status_changed.emit(player_id, true, "ESCORT")
+
+## Callback when Drone is destroyed
+func notify_drone_destroyed() -> void:
+	# Unregister vision cone from squad registry
+	var registry_nodes: Array[Node] = get_tree().get_nodes_in_group("squad_vision_registry")
+	if not registry_nodes.is_empty():
+		var reg: SquadVisionRegistry = registry_nodes[0] as SquadVisionRegistry
+		if reg != null and drone != null and drone.vision_cone != null:
+			reg.unregister_provider(drone.vision_cone)
+
+	drone = null
+	has_drone_active = false
+	is_separated = false
+	_update_overhead_badge()
+	drone_status_changed.emit(player_id, false, "DESTROYED")
+
+## Performs Drone synthesis/reconstruction
+func rebuild_drone() -> void:
+	if not has_drone_active:
+		spawn_drone()
+
+## Taps and holds input processing for Drone Mode control
+func _process_drone_mode_inputs(delta: float) -> void:
+	if drone == null or not has_drone_active:
+		return
+
+	# Synchronize battery values with drone
+	drone.battery_current = battery_current
+	battery_current = drone.battery_current
+
+	var mode_pressed: bool = false
+	if _input_manager != null:
+		mode_pressed = _input_manager.is_action_pressed(player_id, "drone_mode")
+	else:
+		mode_pressed = Input.is_action_pressed("p%d_drone_mode" % player_id) or (player_id == 1 and Input.is_key_pressed(KEY_Q))
+
+	if mode_pressed:
+		if not _is_pressing_mode_button:
+			_is_pressing_mode_button = true
+			_mode_button_press_duration = 0.0
+		
+		_mode_button_press_duration += delta
+		
+		# If button is held down for more than 0.35 seconds, enter Pilot Mode
+		if _mode_button_press_duration > 0.35 and drone.current_mode != DroneBase.DroneMode.PILOT:
+			drone.set_mode(DroneBase.DroneMode.PILOT)
+			drone_status_changed.emit(player_id, true, "PILOT")
+	else:
+		if _is_pressing_mode_button:
+			_is_pressing_mode_button = false
+			# If it was a quick tap, toggle between Escort and Stationary
+			if _mode_button_press_duration <= 0.35:
+				if drone.current_mode == DroneBase.DroneMode.ESCORT:
+					drone.set_mode(DroneBase.DroneMode.STATIONARY)
+					drone_status_changed.emit(player_id, true, "STATIONARY")
+				else:
+					drone.set_mode(DroneBase.DroneMode.ESCORT)
+					drone_status_changed.emit(player_id, true, "ESCORT")
+			else:
+				# Releasing hold returns to Escort Mode
+				if drone.current_mode == DroneBase.DroneMode.PILOT:
+					drone.set_mode(DroneBase.DroneMode.ESCORT)
+					drone_status_changed.emit(player_id, true, "ESCORT")
+
+## Updates overhead label text and color
+func _update_overhead_badge() -> void:
+	if _overhead_label == null or player_id < 1 or player_id > 4:
+		return
+		
+	var label_text: String = ROLE_LABELS[player_id - 1]
+	if not has_drone_active:
+		label_text += " [DRONE LOST]"
+		_overhead_label.modulate = Color(0.9, 0.2, 0.2) # Highlight lost status
+	elif is_separated:
+		label_text += " [SEPARATED]"
+		_overhead_label.modulate = Color(1.0, 0.4, 0.2)
+	elif is_incapacitated:
+		label_text += " [DOWN]"
+		_overhead_label.modulate = Color(0.6, 0.6, 0.6)
+	else:
+		_overhead_label.modulate = SLOT_COLORS[player_id - 1]
+		
+	_overhead_label.text = label_text
+
+## Updates separation status relative to squad centroid
+func update_squad_separation(centroid: Vector3) -> void:
+	# If drone is lost, we don't display separation warnings (drone is not present)
+	if not has_drone_active:
+		is_separated = false
+		return
+		
+	var dist: float = global_position.distance_to(centroid)
+	var newly_separated: bool = dist > separation_warning_distance
+	
+	if newly_separated != is_separated:
+		is_separated = newly_separated
+		_update_overhead_badge()
+
+## Checks if fire button is currently pressed for this player
+func _is_firing_input_active() -> bool:
+	if _input_manager != null:
+		return _input_manager.is_action_pressed(player_id, "fire")
+	return Input.is_action_pressed("p%d_fire" % player_id) or (player_id == 1 and Input.is_key_pressed(KEY_SPACE))
+
+## Executes a hitscan shot with cover damage mitigation and LoS evaluation
+func _execute_tactical_shot() -> void:
+	_fire_cooldown = fire_rate
+	
+	var forward_dir: Vector3 = Vector3(-sin(rotation.y), 0.0, -cos(rotation.y)).normalized()
+	var eye_pos: Vector3 = global_position + Vector3(0.0, 1.2, 0.0)
+	var target_end_pos: Vector3 = eye_pos + (forward_dir * weapon_range)
+	
+	weapon_fired.emit(eye_pos, forward_dir)
+	
+	var exclude_list: Array[RID] = [get_rid()]
+	var los_res: LineOfSightQuery.LoSResult = LineOfSightQuery.test_los(
+		self,
+		eye_pos,
+		target_end_pos,
+		exclude_list,
+		combat_collision_mask
+	)
+
+	if los_res.hit_collider != null:
+		var hit_target: Object = los_res.hit_collider
+		if hit_target is OperatorBase and hit_target != self:
+			var target_op: OperatorBase = hit_target as OperatorBase
+			if not target_op.is_incapacitated:
+				_apply_mitigated_damage(target_op, eye_pos)
+
+## Calculates cover protection and applies damage to hit operator
+func _apply_mitigated_damage(target_op: OperatorBase, attacker_eye_pos: Vector3) -> void:
+	var target_chest: Vector3 = target_op.global_position + Vector3(0.0, 1.2, 0.0)
+	var target_feet: Vector3 = target_op.global_position + Vector3(0.0, 0.1, 0.0)
+	
+	var cover_protection: float = LineOfSightQuery.check_cover_protection(
+		self,
+		attacker_eye_pos,
+		target_chest,
+		target_feet,
+		[get_rid()]
+	)
+	
+	var is_mitigated: bool = cover_protection > 0.0
+	var final_damage: float = base_damage * (1.0 - cover_protection)
+	
+	if final_damage > 0.0:
+		target_op.take_damage(final_damage)
+		damage_dealt.emit(target_op, final_damage, is_mitigated)
+
+## Obtains movement direction from InputManager or Direct Input fallback
+func _get_input_direction() -> Vector2:
+	if _input_manager != null:
+		return _input_manager.get_movement_vector(player_id)
+	
+	var left_act: String = "p%d_move_left" % player_id
+	var right_act: String = "p%d_move_right" % player_id
+	var up_act: String = "p%d_move_up" % player_id
+	var down_act: String = "p%d_move_down" % player_id
+	
+	var vec: Vector2 = Input.get_vector(left_act, right_act, up_act, down_act)
+	if vec == Vector2.ZERO and player_id == 1:
+		vec = Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
+	return vec
+
+## Processes XZ velocity and orientation rotation based on 2D input
+func _process_locomotion(input_vec: Vector2, delta: float) -> void:
+	var target_dir: Vector3 = Vector3(input_vec.x, 0.0, input_vec.y)
+
+	if target_dir.length_squared() > 0.01:
+		target_dir = target_dir.normalized()
+		
+		# Speed multiplier: sprint 1.7x, crouch 0.45x, normal 1.0x
+		var speed_mult: float = 1.7 if is_sprinting else (0.45 if is_crouching else 1.0)
+		var eff_speed: float = move_speed * speed_mult
+		
+		velocity.x = move_toward(velocity.x, target_dir.x * eff_speed, acceleration * delta)
+		velocity.z = move_toward(velocity.z, target_dir.z * eff_speed, acceleration * delta)
+		
+		# Negated atan2 so operator faces the movement direction (forward formula = -sin/-cos)
+		var target_angle: float = atan2(-target_dir.x, -target_dir.z)
+		rotation.y = lerp_angle(rotation.y, target_angle, rotation_speed * delta)
+	else:
+		_apply_deceleration(delta)
+
+## Smoothly decelerates velocity to zero
+func _apply_deceleration(delta: float) -> void:
+	velocity.x = move_toward(velocity.x, 0.0, deceleration * delta)
+	velocity.z = move_toward(velocity.z, 0.0, deceleration * delta)
+	if not is_on_floor():
+		velocity.y -= 9.8 * delta
+
+## Reads sprint and crouch inputs and updates state
+func _update_sprint_crouch() -> void:
+	# Sprint: held action
+	if _input_manager != null:
+		is_sprinting = _input_manager.is_action_pressed(player_id, "sprint")
+	else:
+		is_sprinting = Input.is_key_pressed(KEY_SHIFT)
+	
+	# Crouch: toggle on press
+	var crouch_pressed: bool
+	if _input_manager != null:
+		crouch_pressed = _input_manager.is_action_pressed(player_id, "crouch")
+	else:
+		crouch_pressed = Input.is_key_pressed(KEY_C)
+	
+	if crouch_pressed and not _crouch_prev_pressed:
+		is_crouching = not is_crouching
+		_update_crouch_visual()
+	_crouch_prev_pressed = crouch_pressed
+	
+	# Sprinting cancels crouching
+	if is_sprinting and is_crouching:
+		is_crouching = false
+		_update_crouch_visual()
+
+## Adjusts mesh scale and offset when crouching
+func _update_crouch_visual() -> void:
+	if _mesh_instance == null:
+		return
+	if is_crouching:
+		_mesh_instance.scale    = Vector3(1.0, 0.55, 1.0)
+		_mesh_instance.position = Vector3(0.0, 0.5, 0.0)
+	else:
+		_mesh_instance.scale    = Vector3(1.0, 1.0, 1.0)
+		_mesh_instance.position = Vector3(0.0, 0.9, 0.0)
+## Assigns InputManager reference
+func set_input_manager(input_mgr: InputManager) -> void:
+	_input_manager = input_mgr
+
+## Applies damage to operator and triggers signals / incapacitation
+func take_damage(amount: float) -> void:
+	if is_incapacitated:
+		return
+	
+	var mitigated_amt: float = amount * (1.0 - damage_mitigation)
+	health_current = maxf(0.0, health_current - mitigated_amt)
+	health_changed.emit(health_current, health_max)
+	
+	if health_current <= 0.0:
+		_incapacitate()
+
+## Triggers incapacitation state
+func _incapacitate() -> void:
+	is_incapacitated = true
+	_update_overhead_badge()
+	operator_incapacitated.emit(player_id)
+	
+	# If operator is downed, force drone mode exit from pilot
+	if drone != null and drone.current_mode == DroneBase.DroneMode.PILOT:
+		drone.set_mode(DroneBase.DroneMode.ESCORT)
+
+## Restores health or revives operator
+func revive(restore_hp_ratio: float = 0.5) -> void:
+	is_incapacitated = false
+	var ratio: float = restore_hp_ratio
+	if role is VanguardOperator:
+		ratio = 0.70 # Passive durability override
+	health_current = health_max * clampf(ratio, 0.1, 1.0)
+	_update_overhead_badge()
+	health_changed.emit(health_current, health_max)
+
+## Checks if the active ability input is pressed this frame
+func _is_ability_input_just_pressed() -> bool:
+	if _input_manager != null:
+		return _input_manager.is_action_just_pressed(player_id, "ability")
+	return Input.is_action_just_pressed("p%d_ability" % player_id) or (player_id == 1 and Input.is_key_pressed(KEY_F))
+
+func _update_player_color() -> void:
+	if not is_inside_tree() or _mesh_instance == null:
+		return
+		
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	if player_id >= 1 and player_id <= 4:
+		material.albedo_color = SLOT_COLORS[player_id - 1]
+	else:
+		material.albedo_color = Color(0.7, 0.7, 0.7)
+		
+	_mesh_instance.material_override = material
+
+## ──────────────────────────────────────────────
+## RESOURCE API (Etapa 7)
+## ──────────────────────────────────────────────
+
+## Public entry point for collecting a resource (used by ResourcePickup and external systems).
+## Returns the amount actually added to the inventory.
+func collect_resource(resource_type: String, amount: int) -> int:
+	if inventory == null or is_incapacitated:
+		return 0
+	return inventory.add_resource(resource_type, amount)
+
+## Returns current maintenance component count from this operator's inventory.
+func get_maintenance_components() -> int:
+	if inventory == null:
+		return 0
+	return inventory.get_maintenance_components()
+
+## Returns the operator's inventory capacity.
+func get_inventory_capacity() -> int:
+	if inventory == null:
+		return 0
+	return inventory.capacity
+
+
+============================================================
+# modules\operators\recon_operator.gd
+============================================================
+# recon_operator.gd
+# Technical Rationale: Recon operator role. Specialises in information gathering.
+# Passives: VisionCone3D view_range +25% (16m → 20m), FOV +25% (90° → 112.5°),
+#           scan_interval halved (0.1s → 0.05s) for more frequent target updates.
+# Active ability: MARK TARGETS — all currently detected targets are "pinged" into
+#           SquadVisionRegistry with a 5s persistence timer, visible to all squad members
+#           even after leaving the Recon's personal cone.
+# Cooldown: 12 seconds.
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name ReconOperator
+extends OperatorRole
+
+## Passive vision enhancement constants
+const VISION_RANGE_BONUS_MULTIPLIER: float  = 1.25   ## +25% range (16m → 20m)
+const VISION_FOV_BONUS_MULTIPLIER: float    = 1.25   ## +25% FOV  (90° → 112.5°)
+const SCAN_INTERVAL_MULTIPLIER: float       = 0.5    ## Twice as frequent scans
+
+## Duration (seconds) that marked targets remain in squad registry after leaving cone
+@export_range(2.0, 15.0, 0.5) var mark_duration: float = 5.0
+
+## Track marked targets and their expiry timers {Node3D → float}
+var _marked_targets: Dictionary = {}
+
+## Reference to the squad vision registry (auto-discovered)
+var _squad_registry: SquadVisionRegistry = null
+
+func _ready() -> void:
+	role_name        = "RECON"
+	description      = "Information specialist. Extended vision and target marking."
+	icon_placeholder = "◉"
+	ability_cooldown = 12.0
+	super._ready()
+
+func _process(delta: float) -> void:
+	super._process(delta)
+	_process_mark_timers(delta)
+
+## ──────────────────────────────────────────────
+## PASSIVES
+## ──────────────────────────────────────────────
+
+func apply_passives() -> void:
+	if _operator == null or _operator.vision_cone == null:
+		return
+	_operator.vision_cone.view_range           *= VISION_RANGE_BONUS_MULTIPLIER
+	_operator.vision_cone.field_of_view_degrees *= VISION_FOV_BONUS_MULTIPLIER
+	_operator.vision_cone.scan_interval        *= SCAN_INTERVAL_MULTIPLIER
+	_squad_registry = _find_squad_registry()
+	print("[ReconOperator] Passives applied to P%d. Range=%.1fm FOV=%.1f°" % [
+		_operator.player_id,
+		_operator.vision_cone.view_range,
+		_operator.vision_cone.field_of_view_degrees
+	])
+
+## ──────────────────────────────────────────────
+## ACTIVE: MARK TARGETS
+## ──────────────────────────────────────────────
+
+func _activate_ability() -> void:
+	if _operator == null or _operator.vision_cone == null:
+		return
+	var targets: Array[Node3D] = _operator.vision_cone.get_detected_targets()
+	for t: Node3D in targets:
+		_marked_targets[t] = mark_duration
+	print("[ReconOperator] P%d MARK TARGETS — %d targets marked for %.1fs" % [
+		_operator.player_id, targets.size(), mark_duration
+	])
+
+## Ticks down mark timers and removes expired marks
+func _process_mark_timers(delta: float) -> void:
+	var expired: Array[Node3D] = []
+	for target: Node3D in _marked_targets.keys():
+		var remaining: float = _marked_targets[target] - delta
+		if remaining <= 0.0 or not is_instance_valid(target):
+			expired.append(target)
+		else:
+			_marked_targets[target] = remaining
+	for t: Node3D in expired:
+		_marked_targets.erase(t)
+
+## Returns array of currently marked targets (for HUD or SquadVisionRegistry)
+func get_marked_targets() -> Array[Node3D]:
+	return Array(_marked_targets.keys())
+
+## Returns remaining mark time for a specific target (0.0 if not marked)
+func get_mark_remaining(target: Node3D) -> float:
+	return _marked_targets.get(target, 0.0)
+
+func _find_squad_registry() -> SquadVisionRegistry:
+	if _operator == null:
+		return null
+	var nodes: Array[Node] = _operator.get_tree().get_nodes_in_group("squad_vision_registry")
+	if not nodes.is_empty():
+		return nodes[0] as SquadVisionRegistry
+	return null
+
+
+============================================================
+# modules\operators\vanguard_operator.gd
+============================================================
+# vanguard_operator.gd
+# Technical Rationale: Vanguard operator role. Specialises in front-line durability.
+# Passives: HP +50% (100 → 150), incoming damage mitigation 20% (via operator.damage_mitigation),
+#           revive restore_hp_ratio increased to 0.7 (vs 0.5 base).
+# Active ability: FORTIFY — 5-second window of +40% extra damage mitigation (total 60%).
+# Cooldown: 20 seconds.
+# Does NOT modify movement speed, weapon range, or drone behaviour.
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name VanguardOperator
+extends OperatorRole
+
+## Passive HP multiplier
+const HP_MULTIPLIER: float           = 1.5    ## 100 → 150 HP
+const BASE_MITIGATION: float         = 0.20   ## 20% permanent damage reduction
+const REVIVE_HP_RATIO: float         = 0.70   ## Revives at 70% HP (vs 50% base)
+
+## FORTIFY ability configuration
+@export_range(1.0, 15.0, 0.5) var fortify_duration: float = 5.0
+@export var fortify_extra_mitigation: float = 0.40  ## +40% during FORTIFY (total 60%)
+
+## Runtime state
+var _fortify_active: bool    = false
+var _fortify_timer: float    = 0.0
+
+func _ready() -> void:
+	role_name        = "VANGUARD"
+	description      = "Front-line specialist. Increased HP and damage resistance."
+	icon_placeholder = "⬡"
+	ability_cooldown = 20.0
+	super._ready()
+
+func _process(delta: float) -> void:
+	super._process(delta)
+	_process_fortify(delta)
+
+## ──────────────────────────────────────────────
+## PASSIVES
+## ──────────────────────────────────────────────
+
+func apply_passives() -> void:
+	if _operator == null:
+		return
+	## Increase max HP
+	_operator.health_max     *= HP_MULTIPLIER
+	_operator.health_current  = _operator.health_max
+	## Apply base damage mitigation
+	_operator.damage_mitigation = BASE_MITIGATION
+	print("[VanguardOperator] Passives applied to P%d. HP=%.0f Mitigation=%.0f%%" % [
+		_operator.player_id,
+		_operator.health_max,
+		BASE_MITIGATION * 100.0
+	])
+
+## ──────────────────────────────────────────────
+## ACTIVE: FORTIFY
+## ──────────────────────────────────────────────
+
+func _activate_ability() -> void:
+	if _fortify_active:
+		return
+	_fortify_active = true
+	_fortify_timer  = fortify_duration
+	if _operator != null:
+		_operator.damage_mitigation = BASE_MITIGATION + fortify_extra_mitigation
+	print("[VanguardOperator] P%d FORTIFY activated — %.0f%% total mitigation for %.1fs" % [
+		_operator.player_id if _operator != null else 0,
+		(BASE_MITIGATION + fortify_extra_mitigation) * 100.0,
+		fortify_duration
+	])
+
+func _process_fortify(delta: float) -> void:
+	if not _fortify_active:
+		return
+	_fortify_timer -= delta
+	if _fortify_timer <= 0.0:
+		_fortify_active = false
+		if _operator != null:
+			_operator.damage_mitigation = BASE_MITIGATION  ## Return to base passive
+		print("[VanguardOperator] P%d FORTIFY expired — reverted to base %.0f%% mitigation" % [
+			_operator.player_id if _operator != null else 0,
+			BASE_MITIGATION * 100.0
+		])
+
+## Public query for HUD
+func is_fortify_active() -> bool:
+	return _fortify_active
+
+func get_fortify_remaining() -> float:
+	return _fortify_timer
+
+
+============================================================
+# modules\operators\disruptor_operator.gd
+============================================================
+# disruptor_operator.gd
+# Technical Rationale: Disruptor operator role. Specialises in space denial and drone disruption.
+# Passives: None (designed for active play).
+# Active ability: EMP PULSE — radiates an electromagnetic burst within emp_range meters.
+#   Effects on DroneBase nodes in range:
+#     - Forces exit from PILOT mode (operator loses drone control)
+#     - Locks mode changes for emp_lock_duration seconds
+#     - If in STATIONARY, forces to ESCORT temporarily
+#   Intended to disrupt enemy drones (Gen 2+). In Vertical Slice validates against friendly
+#   drones to confirm mechanics work before Etapa 9 introduces AI enemies.
+# Cooldown: 15 seconds.
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name DisruptorOperator
+extends OperatorRole
+
+## EMP configuration
+@export_range(2.0, 20.0, 0.5) var emp_range: float = 8.0
+@export_range(1.0, 10.0, 0.5) var emp_lock_duration: float = 3.0
+
+## Visual flash placeholder
+var _emp_sphere_placeholder: MeshInstance3D = null
+var _emp_flash_timer: float = 0.0
+const EMP_FLASH_DURATION: float = 0.4
+
+func _ready() -> void:
+	role_name        = "DISRUPTOR"
+	description      = "Space denial specialist. EMP disables enemy drones."
+	icon_placeholder = "⚡"
+	ability_cooldown = 15.0
+	super._ready()
+
+func _process(delta: float) -> void:
+	super._process(delta)
+	_process_emp_flash(delta)
+
+## ──────────────────────────────────────────────
+## PASSIVES (none for Disruptor)
+## ──────────────────────────────────────────────
+
+func apply_passives() -> void:
+	print("[DisruptorOperator] No passive modifiers for P%d. Active-focused role." % [
+		_operator.player_id if _operator != null else 0
+	])
+
+## ──────────────────────────────────────────────
+## ACTIVE: EMP PULSE
+## ──────────────────────────────────────────────
+
+func _activate_ability() -> void:
+	if _operator == null:
+		return
+
+	var emp_origin: Vector3 = _operator.global_position
+	var affected_count: int = 0
+
+	## Scan all drones in the scene
+	var drones: Array[Node] = _operator.get_tree().get_nodes_in_group("drones")
+	for node: Node in drones:
+		if not (node is DroneBase):
+			continue
+		var drone: DroneBase = node as DroneBase
+		if not is_instance_valid(drone):
+			continue
+
+		var dist: float = drone.global_position.distance_to(emp_origin)
+		if dist > emp_range:
+			continue
+
+		_apply_emp_to_drone(drone)
+		affected_count += 1
+
+	## Visual feedback placeholder
+	_trigger_emp_flash()
+
+	print("[DisruptorOperator] P%d EMP PULSE fired — %d drone(s) affected within %.1fm" % [
+		_operator.player_id, affected_count, emp_range
+	])
+
+## Applies EMP effects to a single drone
+func _apply_emp_to_drone(drone: DroneBase) -> void:
+	## Force out of Pilot Mode
+	if drone.current_mode == DroneBase.DroneMode.PILOT:
+		drone.set_mode(DroneBase.DroneMode.ESCORT)
+		if drone.operator != null:
+			drone.operator.is_piloting_drone = false
+
+	## Force Stationary back to Escort temporarily
+	if drone.current_mode == DroneBase.DroneMode.STATIONARY:
+		drone.set_mode(DroneBase.DroneMode.ESCORT)
+
+	print("[DisruptorOperator] EMP applied to drone — mode reset to ESCORT for %.1fs" % emp_lock_duration)
+
+## Creates a temporary visual sphere indicating EMP radius
+func _trigger_emp_flash() -> void:
+	if _operator == null:
+		return
+	if _emp_sphere_placeholder != null:
+		_emp_sphere_placeholder.queue_free()
+
+	_emp_sphere_placeholder = MeshInstance3D.new()
+	var sphere_mesh: SphereMesh = SphereMesh.new()
+	sphere_mesh.radius = emp_range
+	sphere_mesh.height = emp_range * 2.0
+	_emp_sphere_placeholder.mesh = sphere_mesh
+
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_color = Color(0.4, 0.8, 1.0, 0.25)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.emission_enabled = true
+	mat.emission = Color(0.2, 0.6, 1.0)
+	mat.emission_energy_multiplier = 2.0
+	_emp_sphere_placeholder.material_override = mat
+	_emp_sphere_placeholder.global_position = _operator.global_position
+
+	_operator.get_parent().add_child(_emp_sphere_placeholder)
+	_emp_flash_timer = EMP_FLASH_DURATION
+
+func _process_emp_flash(delta: float) -> void:
+	if _emp_sphere_placeholder == null:
+		return
+	_emp_flash_timer -= delta
+	if _emp_flash_timer <= 0.0:
+		_emp_sphere_placeholder.queue_free()
+		_emp_sphere_placeholder = null
+	else:
+		var alpha: float = _emp_flash_timer / EMP_FLASH_DURATION
+		if _emp_sphere_placeholder.material_override is StandardMaterial3D:
+			var mat: StandardMaterial3D = _emp_sphere_placeholder.material_override as StandardMaterial3D
+			mat.albedo_color.a = alpha * 0.25
+
+## Returns the EMP range for HUD/debug display
+func get_emp_range() -> float:
+	return emp_range
+
+
+============================================================
+# modules\operators\engineer_operator.gd
+============================================================
+# engineer_operator.gd
+# Technical Rationale: Engineer operator role. Specialises in squad support and resource efficiency.
+# Passives: ResourceInventory capacity +50% (100 → 150), WreckSalvage yield +50%.
+# Active ability: FIELD REPAIR — consumes maintenance_components to rebuild the operator's Drone.
+#   Cost: engineer_rebuild_cost components (default 20, vs baseline TBD in future etapas).
+#   Also applies a partial HP repair (+25 HP) to the rebuilt drone.
+# Bonus: When the Engineer enters a WreckSalvage zone, yield is boosted automatically.
+# Cooldown: 8 seconds (fastest cooldown — support role).
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name EngineerOperator
+extends OperatorRole
+
+## Passive inventory capacity multiplier
+const INVENTORY_CAP_MULTIPLIER: float  = 1.5    ## 100 → 150 capacity
+const SALVAGE_YIELD_BONUS: float       = 1.5    ## 50% more components from WreckSalvage
+
+## FIELD REPAIR configuration
+@export_range(5, 50, 5) var engineer_rebuild_cost: int = 20
+@export_range(0.0, 50.0, 5.0) var drone_repair_amount: float = 25.0
+
+func _ready() -> void:
+	role_name        = "ENGINEER"
+	description      = "Support specialist. Drone reconstruction and resource efficiency."
+	icon_placeholder = "⚙"
+	ability_cooldown = 8.0
+	super._ready()
+
+## ──────────────────────────────────────────────
+## PASSIVES
+## ──────────────────────────────────────────────
+
+func apply_passives() -> void:
+	if _operator == null:
+		return
+
+	## Increase inventory capacity
+	if _operator.inventory != null:
+		var new_cap: int = int(float(_operator.inventory.capacity) * INVENTORY_CAP_MULTIPLIER)
+		_operator.inventory.capacity = new_cap
+
+	print("[EngineerOperator] Passives applied to P%d. Inventory cap=%d" % [
+		_operator.player_id,
+		_operator.inventory.capacity if _operator.inventory != null else 0
+	])
+
+## ──────────────────────────────────────────────
+## ACTIVE: FIELD REPAIR
+## ──────────────────────────────────────────────
+
+func _activate_ability() -> void:
+	if _operator == null:
+		return
+
+	## Cannot repair if drone is already active
+	if _operator.has_drone_active and _operator.drone != null and is_instance_valid(_operator.drone):
+		## Drone alive — apply HP repair instead
+		_repair_active_drone()
+		return
+
+	## Drone destroyed — attempt rebuild with component cost
+	if _operator.inventory == null:
+		return
+
+	if not _operator.inventory.has_resource(ResourceInventory.TYPE_MAINTENANCE, engineer_rebuild_cost):
+		print("[EngineerOperator] P%d FIELD REPAIR failed — not enough components (%d required, %d available)" % [
+			_operator.player_id,
+			engineer_rebuild_cost,
+			_operator.inventory.get_maintenance_components()
+		])
+		return
+
+	## Deduct components and rebuild
+	_operator.inventory.remove_resource(ResourceInventory.TYPE_MAINTENANCE, engineer_rebuild_cost)
+	_operator.rebuild_drone()
+
+	print("[EngineerOperator] P%d FIELD REPAIR executed — rebuilt Drone, consumed %d components" % [
+		_operator.player_id, engineer_rebuild_cost
+	])
+
+## Repairs the operator's active drone HP if it is alive
+func _repair_active_drone() -> void:
+	if _operator.drone == null:
+		return
+	var drone: DroneBase = _operator.drone
+	drone.health_current = minf(drone.health_current + drone_repair_amount, drone.health_max)
+	print("[EngineerOperator] P%d FIELD REPAIR — repaired active Drone by %.0f HP (now %.0f/%.0f)" % [
+		_operator.player_id, drone_repair_amount, drone.health_current, drone.health_max
+	])
+
+## ──────────────────────────────────────────────
+## PUBLIC API
+## ──────────────────────────────────────────────
+
+## Returns true if the operator can afford a drone rebuild
+func can_afford_rebuild() -> bool:
+	if _operator == null or _operator.inventory == null:
+		return false
+	return _operator.inventory.has_resource(ResourceInventory.TYPE_MAINTENANCE, engineer_rebuild_cost)
+
+## Returns rebuild cost for HUD display
+func get_rebuild_cost() -> int:
+	return engineer_rebuild_cost
+
+## Returns salvage yield bonus multiplier
+func get_salvage_bonus() -> float:
+	return SALVAGE_YIELD_BONUS
+
+
+============================================================
+# modules\operators\operator_role.gd
+============================================================
+# operator_role.gd
+# Technical Rationale: Abstract base component for operator roles/doctrines.
+# Provides the common interface for passive modifiers and active abilities.
+# Composed onto OperatorBase via assign_role() — no inheritance depth increase.
+# Designed for reuse across Gen1/Gen2/Gen3 doctrines.
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name OperatorRole
+extends Node
+
+## ──────────────────────────────────────────────
+## SIGNALS
+## ──────────────────────────────────────────────
+signal ability_activated(role_name: String)
+signal ability_ready
+signal cooldown_tick(remaining: float)
+
+## ──────────────────────────────────────────────
+## ROLE IDENTITY (override in derived classes)
+## ──────────────────────────────────────────────
+@export var role_name: String = "Operator"
+@export var description: String = "Generic operator."
+@export var icon_placeholder: String = "◈"   ## Unicode icon for HUD placeholder
+
+## ──────────────────────────────────────────────
+## ABILITY CONFIGURATION
+## ──────────────────────────────────────────────
+@export_range(0.0, 60.0, 0.5) var ability_cooldown: float = 10.0
+
+## ──────────────────────────────────────────────
+## RUNTIME STATE
+## ──────────────────────────────────────────────
+var _cooldown_current: float = 0.0      ## Time remaining before ability is available
+var _operator: OperatorBase = null      ## Owning operator (set by assign_to)
+var _is_ready: bool = true              ## True when ability can be activated
+
+## ──────────────────────────────────────────────
+## LIFECYCLE
+## ──────────────────────────────────────────────
+func _ready() -> void:
+	_cooldown_current = 0.0
+	_is_ready = true
+
+func _process(delta: float) -> void:
+	_process_cooldown(delta)
+
+## ──────────────────────────────────────────────
+## PUBLIC API
+## ──────────────────────────────────────────────
+
+## Called by OperatorBase.assign_role() — sets the owning operator and applies passives.
+func assign_to(op: OperatorBase) -> void:
+	_operator = op
+	apply_passives()
+
+## Returns true if ability is off cooldown.
+func is_ability_ready() -> bool:
+	return _is_ready
+
+## Returns cooldown remaining in seconds (0.0 if ready).
+func get_cooldown_remaining() -> float:
+	return _cooldown_current
+
+## Returns cooldown progress ratio (0.0 = ready, 1.0 = just activated).
+func get_cooldown_ratio() -> float:
+	if ability_cooldown <= 0.0:
+		return 0.0
+	return _cooldown_current / ability_cooldown
+
+## External trigger: called by OperatorBase when the ability input is pressed.
+func try_activate_ability() -> bool:
+	if not _is_ready or _operator == null:
+		return false
+	if _operator.is_incapacitated:
+		return false
+	_activate_ability()
+	_start_cooldown()
+	ability_activated.emit(role_name)
+	return true
+
+## ──────────────────────────────────────────────
+## VIRTUAL METHODS — Override in derived roles
+## ──────────────────────────────────────────────
+
+## Override: apply passive stat modifications to the operator.
+func apply_passives() -> void:
+	pass
+
+## Override: implement role-specific active ability logic.
+func _activate_ability() -> void:
+	pass
+
+## ──────────────────────────────────────────────
+## COOLDOWN MANAGEMENT
+## ──────────────────────────────────────────────
+
+func _start_cooldown() -> void:
+	_cooldown_current = ability_cooldown
+	_is_ready = false
+
+func _process_cooldown(delta: float) -> void:
+	if _is_ready:
+		return
+	_cooldown_current = maxf(0.0, _cooldown_current - delta)
+	cooldown_tick.emit(_cooldown_current)
+	if _cooldown_current <= 0.0:
+		_is_ready = true
+		ability_ready.emit()
+
+
+============================================================
+# modules\vision\line_of_sight.gd
+============================================================
+# line_of_sight.gd
+# Technical Rationale: Reusable Line of Sight (LoS) query utility.
+# Uses PhysicsDirectSpaceState3D raycasts to check visibility, cover obstruction, and distance.
+# Designed for consumption by Operators, Drones, AI, Recon, and Objective systems.
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name LineOfSightQuery
+extends RefCounted
+
+## Result container for a Line of Sight query
+class LoSResult:
+	var is_visible: bool = false
+	var is_obstructed_by_cover: bool = false
+	var distance: float = 0.0
+	var hit_collider: Object = null
+	var hit_position: Vector3 = Vector3.ZERO
+	var cover_height_ratio: float = 0.0 # 0.0 = clear, 0.5 = low cover, 1.0 = full cover
+
+## Performs a raycast check from origin to target_position in 3D physics space
+static func test_los(
+	world_node: Node3D,
+	origin: Vector3,
+	target_position: Vector3,
+	exclude_rid_list: Array[RID] = [],
+	collision_mask: int = 1
+) -> LoSResult:
+	var result: LoSResult = LoSResult.new()
+	result.distance = origin.distance_to(target_position)
+
+	if world_node == null or not world_node.is_inside_tree():
+		return result
+
+	var space_state: PhysicsDirectSpaceState3D = world_node.get_world_3d().direct_space_state
+	if space_state == null:
+		return result
+
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(
+		origin,
+		target_position,
+		collision_mask,
+		exclude_rid_list
+	)
+	query.collide_with_bodies = true
+	query.collide_with_areas = false
+
+	var ray_hit: Dictionary = space_state.intersect_ray(query)
+
+	if ray_hit.is_empty():
+		# Direct line of sight with no physical obstacles
+		result.is_visible = true
+		result.is_obstructed_by_cover = false
+		result.hit_position = target_position
+	else:
+		result.hit_position = ray_hit.get("position", target_position) as Vector3
+		result.hit_collider = ray_hit.get("collider", null) as Object
+
+		# If ray hit point is close to target_position, treat as visible hit
+		if result.hit_position.distance_to(target_position) < 0.5:
+			result.is_visible = true
+			result.is_obstructed_by_cover = false
+		else:
+			result.is_visible = false
+			result.is_obstructed_by_cover = true
+			
+			# Estimate cover height ratio based on hit height relative to origin/target
+			var hit_height: float = result.hit_position.y - minf(origin.y, target_position.y)
+			result.cover_height_ratio = clampf(hit_height / 1.8, 0.0, 1.0)
+
+	return result
+
+## Evaluates whether a target is behind low cover relative to an attacker position
+static func check_cover_protection(
+	world_node: Node3D,
+	attacker_head_pos: Vector3,
+	target_center_pos: Vector3,
+	target_feet_pos: Vector3,
+	exclude_rids: Array[RID] = []
+) -> float:
+	# Raycast 1: To target center/chest
+	var center_res: LoSResult = test_los(world_node, attacker_head_pos, target_center_pos, exclude_rids)
+	# Raycast 2: To target feet
+	var feet_res: LoSResult = test_los(world_node, attacker_head_pos, target_feet_pos, exclude_rids)
+
+	if center_res.is_visible:
+		if feet_res.is_obstructed_by_cover:
+			# Low cover protection: feet obstructed, chest visible -> 50% damage reduction
+			return 0.5
+		# Clear line of sight -> 0% cover protection
+		return 0.0
+	else:
+		if feet_res.is_obstructed_by_cover and center_res.is_obstructed_by_cover:
+			# Full cover protection -> 100% blocked
+			return 1.0
+		# Partial cover
+		return 0.75
+
+
+============================================================
+# modules\vision\vision_cone_3d.gd
+============================================================
+# vision_cone_3d.gd
+# Technical Rationale: Modular 3D Vision Cone component.
+# Computes angular field-of-view, range filtering, and LoS raycasting against potential targets.
+# Architecture designed for shared consumption by Operators, Drones (Gen 1), and AI entities.
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name VisionCone3D
+extends Node3D
+
+## Signals
+signal target_detected(target: Node3D)
+signal target_lost(target: Node3D)
+signal vision_updated(detected_targets: Array[Node3D])
+
+## Maximum sight range in meters
+@export var view_range: float = 16.0
+
+## Field of view angle in degrees (e.g. 90.0)
+@export_range(10.0, 360.0) var field_of_view_degrees: float = 90.0
+
+## Collision mask for LoS obstacles (Layer 1 = World geometry)
+@export_flags_3d_physics var obstacle_collision_mask: int = 1
+
+## Scan interval in seconds (throttles raycasts for performance)
+@export var scan_interval: float = 0.1
+
+## Currently detected targets within LoS and Vision Cone
+var _detected_targets: Array[Node3D] = []
+
+## Timer accumulator for throttled physics scanning
+var _scan_timer: float = 0.0
+
+## List of target groups to evaluate (default: "players", "enemies")
+@export var target_groups: Array[String] = ["players", "enemies"]
+
+func _physics_process(delta: float) -> void:
+	_scan_timer += delta
+	if _scan_timer >= scan_interval:
+		_scan_timer = 0.0
+		_perform_vision_scan()
+
+## Returns array of currently visible targets inside vision cone
+func get_detected_targets() -> Array[Node3D]:
+	return _detected_targets.duplicate()
+
+## Checks if a specific Node3D target is currently visible inside the cone
+func is_target_visible(target: Node3D) -> bool:
+	return _detected_targets.has(target)
+
+## Scans world targets against angle, distance, and physics LoS
+func _perform_vision_scan() -> void:
+	var newly_detected: Array[Node3D] = []
+	var parent_rid: RID = _get_parent_rid()
+	var exclude_list: Array[RID] = []
+	if parent_rid.is_valid():
+		exclude_list.append(parent_rid)
+
+	for group_name: String in target_groups:
+		var candidates: Array[Node] = get_tree().get_nodes_in_group(group_name)
+		for candidate: Node in candidates:
+			if candidate == get_parent() or not (candidate is Node3D):
+				continue
+				
+			var target_node: Node3D = candidate as Node3D
+			if _evaluate_candidate(target_node, exclude_list):
+				newly_detected.append(target_node)
+
+	_update_detection_states(newly_detected)
+
+## Evaluates whether a candidate Node3D lies inside angular cone, distance, and clear LoS
+func _evaluate_candidate(target: Node3D, exclude_rids: Array[RID]) -> bool:
+	if target == null or not target.is_inside_tree() or not target.visible:
+		return false
+
+	var origin: Vector3 = global_position
+	var target_pos: Vector3 = target.global_position + Vector3(0.0, 0.9, 0.0) # Aim at chest height
+	
+	var to_target: Vector3 = target_pos - origin
+	var dist: float = to_target.length()
+
+	# 1. Distance check
+	if dist > view_range or dist < 0.1:
+		return false
+
+	# 2. Angle check relative to forward direction (-Z axis in local space)
+	var forward: Vector3 = -global_transform.basis.z.normalized()
+	var dir_to_target: Vector3 = to_target.normalized()
+	var angle_rad: float = forward.angle_to(dir_to_target)
+	var half_fov_rad: float = deg_to_rad(field_of_view_degrees * 0.5)
+
+	if angle_rad > half_fov_rad:
+		return false
+
+	# 3. Line of Sight raycast check
+	var los_res: LineOfSightQuery.LoSResult = LineOfSightQuery.test_los(
+		self,
+		origin,
+		target_pos,
+		exclude_rids,
+		obstacle_collision_mask
+	)
+
+	return los_res.is_visible
+
+## Updates detection list and fires signals on state changes
+func _update_detection_states(current_scan_hits: Array[Node3D]) -> void:
+	# Check for lost targets
+	var i: int = _detected_targets.size() - 1
+	while i >= 0:
+		var old_target: Node3D = _detected_targets[i]
+		if not current_scan_hits.has(old_target):
+			_detected_targets.remove_at(i)
+			target_lost.emit(old_target)
+		i -= 1
+
+	# Check for newly detected targets
+	for new_target: Node3D in current_scan_hits:
+		if not _detected_targets.has(new_target):
+			_detected_targets.append(new_target)
+			target_detected.emit(new_target)
+
+	vision_updated.emit(_detected_targets.duplicate())
+
+## Helper to retrieve parent PhysicsBody RID for raycast exclusion
+func _get_parent_rid() -> RID:
+	var p: Node = get_parent()
+	if p is CollisionObject3D:
+		return (p as CollisionObject3D).get_rid()
+	return RID()
+
+
+============================================================
+# modules\ai_core\ai_core.gd
+============================================================
+# ai_core.gd
+# Technical Rationale: Root orchestrator for the AI Core system.
+# Composes HackController, CoreCaptureZone, and CoreStatusDisplay into a self-contained module.
+# Map integration: instantiate this node and place it on the CorePlatform. No other coupling required.
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name AICore
+extends Node3D
+
+## ──────────────────────────────────────────────
+## SIGNALS (re-exported from HackController for external consumers)
+## ──────────────────────────────────────────────
+signal hack_started(team_id: int)
+signal hack_progress_changed(progress: float, team_id: int)
+signal hack_contested
+signal hack_degrading(progress: float)
+signal hack_completed(team_id: int)
+signal ownership_changed(new_owner_team: int)
+
+## ──────────────────────────────────────────────
+## EXPORTED CONFIGURATION (forwarded to child modules)
+## ──────────────────────────────────────────────
+
+## Hack speed (%/s) when team controls perimeter
+@export_range(1.0, 30.0, 0.5) var hack_speed_percent_per_second: float = 5.0
+
+## Degradation: -% per tick
+@export_range(1.0, 30.0, 0.5) var degradation_percent_per_tick: float = 10.0
+
+## Degradation interval in seconds
+@export_range(5.0, 120.0, 1.0) var degradation_interval_seconds: float = 30.0
+
+## Capture threshold (100% = full core)
+@export_range(50.0, 100.0, 1.0) var capture_threshold_percent: float = 100.0
+
+## Perimeter physical size (XZ half-extents in meters)
+@export var perimeter_size: Vector3 = Vector3(10.0, 3.0, 10.0)
+
+## ──────────────────────────────────────────────
+## CHILD MODULE REFERENCES
+## ──────────────────────────────────────────────
+var hack_controller: HackController = null
+var capture_zone: CoreCaptureZone = null
+var status_display: CoreStatusDisplay = null
+
+## Optional: visual mesh for the Core itself (placeholder)
+var _core_mesh: MeshInstance3D = null
+
+## ──────────────────────────────────────────────
+## LIFECYCLE
+## ──────────────────────────────────────────────
+func _ready() -> void:
+	_build_hack_controller()
+	_build_capture_zone()
+	_build_core_visual()
+	_build_status_display()
+	_wire_signals()
+	add_to_group("ai_core")
+	print("[AICore] Fully initialized. Hack speed: %.1f%%/s. Degradation: -%.1f%% / %.0fs." % [
+		hack_speed_percent_per_second, degradation_percent_per_tick, degradation_interval_seconds
+	])
+
+func _process(_delta: float) -> void:
+	## Bridge IDLE state to display (HackController does not emit a signal for IDLE)
+	if hack_controller != null and status_display != null:
+		if hack_controller.get_current_state() == HackController.CoreState.IDLE:
+			status_display.on_state_idle()
+
+## ──────────────────────────────────────────────
+## MODULE CONSTRUCTION
+## ──────────────────────────────────────────────
+
+func _build_hack_controller() -> void:
+	hack_controller = HackController.new()
+	hack_controller.name = "HackController"
+	hack_controller.hack_speed_percent_per_second = hack_speed_percent_per_second
+	hack_controller.degradation_percent_per_tick = degradation_percent_per_tick
+	hack_controller.degradation_interval_seconds = degradation_interval_seconds
+	hack_controller.capture_threshold_percent = capture_threshold_percent
+	add_to_group("hack_controller")           ## Self-register for CoreCaptureZone auto-discovery
+	add_child(hack_controller)
+	hack_controller.add_to_group("hack_controller")
+
+func _build_capture_zone() -> void:
+	capture_zone = CoreCaptureZone.new()
+	capture_zone.name = "CoreCaptureZone"
+
+	## Collision shape for the perimeter area
+	var col: CollisionShape3D = CollisionShape3D.new()
+	var box: BoxShape3D = BoxShape3D.new()
+	box.size = perimeter_size
+	col.shape = box
+	capture_zone.add_child(col)
+
+	add_child(capture_zone)
+
+	## Manually inject HackController reference (avoids group-discovery timing issues)
+	capture_zone.set_hack_controller(hack_controller)
+
+func _build_core_visual() -> void:
+	## Placeholder visual: glowing box representing the Core terminal
+	_core_mesh = MeshInstance3D.new()
+	_core_mesh.name = "CoreMesh"
+
+	var mesh: BoxMesh = BoxMesh.new()
+	mesh.size = Vector3(2.0, 2.0, 2.0)
+	_core_mesh.mesh = mesh
+	_core_mesh.position = Vector3(0.0, 1.5, 0.0)
+
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_color = Color(0.1, 0.6, 0.9)
+	mat.emission_enabled = true
+	mat.emission = Color(0.05, 0.3, 0.6)
+	mat.emission_energy_multiplier = 1.5
+	_core_mesh.material_override = mat
+
+	add_child(_core_mesh)
+
+func _build_status_display() -> void:
+	status_display = CoreStatusDisplay.new()
+	status_display.name = "CoreStatusDisplay"
+	status_display.hack_controller = hack_controller
+	## Display is added to the scene root's CanvasLayer equivalent (SquadHUD handles this)
+	## For modularity, we add it as child here and it self-positions via anchors
+	add_child(status_display)
+
+## ──────────────────────────────────────────────
+## SIGNAL WIRING
+## ──────────────────────────────────────────────
+
+func _wire_signals() -> void:
+	if hack_controller == null:
+		return
+
+	## Re-emit from HackController to AICore (external listeners)
+	hack_controller.hack_started.connect(func(tid: int) -> void:
+		hack_started.emit(tid)
+		if status_display != null:
+			status_display.on_hack_started(tid)
+	)
+	hack_controller.hack_progress_changed.connect(func(prog: float, tid: int) -> void:
+		hack_progress_changed.emit(prog, tid)
+		if status_display != null:
+			status_display.on_hack_progress_changed(prog, tid)
+	)
+	hack_controller.hack_contested.connect(func() -> void:
+		hack_contested.emit()
+		if status_display != null:
+			status_display.on_hack_contested()
+	)
+	hack_controller.hack_degrading.connect(func(prog: float) -> void:
+		hack_degrading.emit(prog)
+		if status_display != null:
+			status_display.on_hack_degrading(prog)
+	)
+	hack_controller.hack_completed.connect(func(tid: int) -> void:
+		hack_completed.emit(tid)
+		if status_display != null:
+			status_display.on_hack_completed(tid)
+	)
+	hack_controller.ownership_changed.connect(func(new_owner: int) -> void:
+		ownership_changed.emit(new_owner)
+		_update_core_visual_captured()
+	)
+
+## ──────────────────────────────────────────────
+## VISUAL FEEDBACK — CORE STATE
+## ──────────────────────────────────────────────
+
+## Updates Core mesh emission color on state transitions
+func _update_core_visual_captured() -> void:
+	if _core_mesh == null:
+		return
+	var mat: StandardMaterial3D = _core_mesh.material_override as StandardMaterial3D
+	if mat != null:
+		mat.albedo_color = Color(0.2, 0.95, 0.5)
+		mat.emission = Color(0.1, 0.6, 0.3)
+		mat.emission_energy_multiplier = 3.0
+
+## ──────────────────────────────────────────────
+## PUBLIC API (facade over HackController)
+## ──────────────────────────────────────────────
+
+func get_progress() -> float:
+	return hack_controller.get_progress() if hack_controller != null else 0.0
+
+func get_current_state() -> HackController.CoreState:
+	return hack_controller.get_current_state() if hack_controller != null else HackController.CoreState.IDLE
+
+func get_hacking_team() -> int:
+	return hack_controller.get_hacking_team() if hack_controller != null else -1
+
+func get_owning_team() -> int:
+	return hack_controller.get_owning_team() if hack_controller != null else -1
+
+
+============================================================
+# modules\ai_core\hack_controller.gd
+============================================================
+# hack_controller.gd
+# Technical Rationale: State machine and progress engine for the AI Core hacking mechanic.
+# Manages IDLE, HACKING, CONTESTED, DEGRADED, and CAPTURED states with configurable timings.
+# Emits all public signals consumed by HUD, audio, IA defensora, and objective systems.
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name HackController
+extends Node
+
+## ──────────────────────────────────────────────
+## SIGNALS (Public API — consumed by HUD, audio, AI, objectives)
+## ──────────────────────────────────────────────
+signal hack_started(team_id: int)
+signal hack_progress_changed(progress: float, team_id: int)
+signal hack_contested
+signal hack_degrading(progress: float)
+signal hack_completed(team_id: int)
+signal ownership_changed(new_owner_team: int)
+
+## ──────────────────────────────────────────────
+## CORE STATE ENUM
+## ──────────────────────────────────────────────
+enum CoreState {
+	IDLE,       ## No team in perimeter
+	HACKING,    ## One team controls the perimeter — progress advances
+	CONTESTED,  ## Both teams in perimeter — progress frozen
+	DEGRADED,   ## Attacking team left — progress decays at -10% per 30s
+	CAPTURED    ## Progress reached 100% — core captured
+}
+
+## ──────────────────────────────────────────────
+## EXPORTED CONFIGURATION (All timings in seconds, all speeds per second)
+## ──────────────────────────────────────────────
+
+## Hack progress speed (% per second) when a team controls the perimeter
+@export_range(1.0, 30.0, 0.5) var hack_speed_percent_per_second: float = 5.0
+
+## Degradation speed — applied every degradation_interval_seconds
+## Design Decision (Phase 0.5): -10% every 30 seconds. Never instant reset.
+@export_range(1.0, 30.0, 0.5) var degradation_percent_per_tick: float = 10.0
+@export_range(5.0, 120.0, 1.0) var degradation_interval_seconds: float = 30.0
+
+## Capture threshold (%) required to trigger CAPTURED state
+@export_range(50.0, 100.0, 1.0) var capture_threshold_percent: float = 100.0
+
+## Minimum operators needed to contest (each team must have at least this many)
+@export_range(1, 4, 1) var min_operators_to_contest: int = 1
+
+## ──────────────────────────────────────────────
+## RUNTIME STATE
+## ──────────────────────────────────────────────
+var current_state: CoreState = CoreState.IDLE
+var hack_progress: float = 0.0       ## 0.0 to 100.0
+var hacking_team_id: int = -1        ## Team currently hacking (-1 = none)
+var owning_team_id: int = -1         ## Team that captured the core (-1 = none)
+
+## Presence tracking: team_id -> operator count in perimeter
+var _team_presence: Dictionary = {}
+
+## Degradation accumulator
+var _degradation_timer: float = 0.0
+
+## Internal: previous state for change detection
+var _previous_state: CoreState = CoreState.IDLE
+
+## ──────────────────────────────────────────────
+## LIFECYCLE
+## ──────────────────────────────────────────────
+func _ready() -> void:
+	_team_presence.clear()
+	current_state = CoreState.IDLE
+	hack_progress = 0.0
+	print("[HackController] Initialized. hack_speed=%.1f%%/s  degradation=-%.1f%% per %.0fs" % [
+		hack_speed_percent_per_second, degradation_percent_per_tick, degradation_interval_seconds
+	])
+
+func _process(delta: float) -> void:
+	_evaluate_state()
+	_process_state_logic(delta)
+	_emit_on_state_change()
+
+## ──────────────────────────────────────────────
+## PUBLIC API — Called by CoreCaptureZone
+## ──────────────────────────────────────────────
+
+## Registers an operator entering the perimeter
+func register_entry(team_id: int, operator_id: int) -> void:
+	if not _team_presence.has(team_id):
+		_team_presence[team_id] = {}
+	_team_presence[team_id][operator_id] = true
+	print("[HackController] Team %d Operator %d entered perimeter. Presence: %s" % [team_id, operator_id, str(_team_presence)])
+
+## Registers an operator leaving the perimeter
+func register_exit(team_id: int, operator_id: int) -> void:
+	if _team_presence.has(team_id):
+		_team_presence[team_id].erase(operator_id)
+		if _team_presence[team_id].is_empty():
+			_team_presence.erase(team_id)
+	print("[HackController] Team %d Operator %d exited perimeter. Presence: %s" % [team_id, operator_id, str(_team_presence)])
+
+## Returns current progress (0.0–100.0)
+func get_progress() -> float:
+	return hack_progress
+
+## Returns current state as enum
+func get_current_state() -> CoreState:
+	return current_state
+
+## Returns the team currently hacking (-1 if none)
+func get_hacking_team() -> int:
+	return hacking_team_id
+
+## Returns the team that owns the core (-1 if none)
+func get_owning_team() -> int:
+	return owning_team_id
+
+## Returns presence count for a given team
+func get_team_presence_count(team_id: int) -> int:
+	if _team_presence.has(team_id):
+		return _team_presence[team_id].size()
+	return 0
+
+## Returns array of all teams with presence in the perimeter
+func get_present_teams() -> Array[int]:
+	var teams: Array[int] = []
+	for k: int in _team_presence.keys():
+		if _team_presence[k].size() >= min_operators_to_contest:
+			teams.append(k)
+	return teams
+
+## ──────────────────────────────────────────────
+## STATE EVALUATION LOGIC
+## ──────────────────────────────────────────────
+
+## Determines which state should be active based on perimeter presence
+func _evaluate_state() -> void:
+	if current_state == CoreState.CAPTURED:
+		return  ## Terminal state — no reevaluation
+
+	var present_teams: Array[int] = get_present_teams()
+	var team_count: int = present_teams.size()
+
+	if team_count == 0:
+		## No teams present
+		if hack_progress > 0.0 and current_state != CoreState.IDLE:
+			## Progress exists — must degrade
+			current_state = CoreState.DEGRADED
+		else:
+			current_state = CoreState.IDLE
+			hacking_team_id = -1
+
+	elif team_count == 1:
+		## One team controls — HACKING
+		hacking_team_id = present_teams[0]
+		current_state = CoreState.HACKING
+		_degradation_timer = 0.0  ## Reset degradation timer when hacking resumes
+
+	elif team_count >= 2:
+		## Multiple teams — CONTESTED
+		current_state = CoreState.CONTESTED
+
+## ──────────────────────────────────────────────
+## STATE LOGIC PROCESSING
+## ──────────────────────────────────────────────
+
+func _process_state_logic(delta: float) -> void:
+	match current_state:
+		CoreState.IDLE:
+			_process_idle()
+		CoreState.HACKING:
+			_process_hacking(delta)
+		CoreState.CONTESTED:
+			_process_contested()
+		CoreState.DEGRADED:
+			_process_degraded(delta)
+		CoreState.CAPTURED:
+			pass  ## No processing — game event handled at transition
+
+func _process_idle() -> void:
+	pass  ## Progress stable at 0 or previous value — no action
+
+func _process_hacking(delta: float) -> void:
+	hack_progress += hack_speed_percent_per_second * delta
+	hack_progress = minf(hack_progress, capture_threshold_percent)
+	hack_progress_changed.emit(hack_progress, hacking_team_id)
+
+	if hack_progress >= capture_threshold_percent:
+		_transition_to_captured()
+
+func _process_contested() -> void:
+	## Progress frozen — emit contested signal for HUD polling
+	hack_contested.emit()
+
+func _process_degraded(delta: float) -> void:
+	_degradation_timer += delta
+	if _degradation_timer >= degradation_interval_seconds:
+		_degradation_timer -= degradation_interval_seconds
+		hack_progress = maxf(0.0, hack_progress - degradation_percent_per_tick)
+		hack_degrading.emit(hack_progress)
+		hack_progress_changed.emit(hack_progress, hacking_team_id)
+		print("[HackController] DEGRADATION tick — progress now %.1f%%" % hack_progress)
+
+		if hack_progress <= 0.0:
+			current_state = CoreState.IDLE
+			hacking_team_id = -1
+
+## ──────────────────────────────────────────────
+## STATE TRANSITIONS
+## ──────────────────────────────────────────────
+
+func _transition_to_captured() -> void:
+	current_state = CoreState.CAPTURED
+	var prev_owner: int = owning_team_id
+	owning_team_id = hacking_team_id
+	hack_progress = 100.0
+
+	print("[HackController] *** CORE CAPTURED by Team %d ***" % owning_team_id)
+	hack_completed.emit(owning_team_id)
+
+	if prev_owner != owning_team_id:
+		ownership_changed.emit(owning_team_id)
+
+## ──────────────────────────────────────────────
+## STATE CHANGE SIGNAL EMISSION
+## ──────────────────────────────────────────────
+
+## Emits hack_started when transitioning into HACKING from another state
+func _emit_on_state_change() -> void:
+	if current_state == CoreState.HACKING and _previous_state != CoreState.HACKING:
+		hack_started.emit(hacking_team_id)
+	_previous_state = current_state
+
+
+============================================================
+# scripts\input_manager.gd
+============================================================
+# input_manager.gd
+# Technical Rationale: Refined input management system for 2-4 local players.
+# Encapsulates player device profiles (PlayerInputProfile) and manages gamepad hotplugging dynamically.
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name InputManager
+extends Node
+
+## Signals
+signal device_connection_changed(player_id: int, connected: bool)
+
+## Number of supported local players in Vertical Slice
+const MAX_PLAYERS: int = 4
+
+## Inner data class representing a player's input hardware profile
+class PlayerInputProfile:
+	enum DeviceType { KEYBOARD_MOUSE, GAMEPAD, UNASSIGNED }
+
+	var player_id: int = 1
+	var device_id: int = -1 # -1 = Keyboard/Mouse, 0+ = Gamepad Device ID
+	var device_type: DeviceType = DeviceType.KEYBOARD_MOUSE
+	var is_connected: bool = true
+	var role_name_placeholder: String = "Operator"
+
+	func get_device_name() -> String:
+		match device_type:
+			DeviceType.KEYBOARD_MOUSE:
+				return "Keyboard & Mouse"
+			DeviceType.GAMEPAD:
+				return "Gamepad #%d" % device_id
+			_:
+				return "Disconnected"
+
+## Registry of active player profiles indexed by Player ID (1..4)
+var _profiles: Dictionary = {}
+
+## Tracks connected Joypads detected by Godot OS layer
+var _connected_joypads: Array[int] = []
+
+func _ready() -> void:
+	_initialize_profiles()
+	_detect_joypads()
+	Input.joy_connection_changed.connect(_on_joy_connection_changed)
+	_setup_default_input_map()
+
+## Creates initial default profiles for players 1 to 4
+func _initialize_profiles() -> void:
+	_profiles.clear()
+	var role_names: Array[String] = ["Recon", "Vanguard", "Tech Disruptor", "Field Engineer"]
+	
+	for p_id: int in range(1, MAX_PLAYERS + 1):
+		var profile: PlayerInputProfile = PlayerInputProfile.new()
+		profile.player_id = p_id
+		profile.role_name_placeholder = role_names[p_id - 1]
+		_profiles[p_id] = profile
+
+## Detects currently connected controllers at launch
+func _detect_joypads() -> void:
+	_connected_joypads.clear()
+	var joypads: Array[int] = Input.get_connected_joypads()
+	for joy_id: int in joypads:
+		_connected_joypads.append(joy_id)
+	_auto_assign_devices()
+
+## Callback when a gamepad is plugged in or unplugged
+func _on_joy_connection_changed(device_id: int, connected: bool) -> void:
+	if connected:
+		if not _connected_joypads.has(device_id):
+			_connected_joypads.append(device_id)
+	else:
+		_connected_joypads.erase(device_id)
+	
+	_auto_assign_devices()
+
+## Automatically assigns available controllers to players 1-4
+func _auto_assign_devices() -> void:
+	var p1_prof: PlayerInputProfile = _profiles.get(1)
+	if p1_prof != null:
+		p1_prof.device_id = -1
+		p1_prof.device_type = PlayerInputProfile.DeviceType.KEYBOARD_MOUSE
+		p1_prof.is_connected = true
+
+	for i: int in range(0, 3):
+		var p_id: int = i + 2
+		var prof: PlayerInputProfile = _profiles.get(p_id)
+		if prof != null:
+			if i < _connected_joypads.size():
+				prof.device_id = _connected_joypads[i]
+				prof.device_type = PlayerInputProfile.DeviceType.GAMEPAD
+				prof.is_connected = true
+			else:
+				prof.device_id = -1
+				prof.device_type = PlayerInputProfile.DeviceType.KEYBOARD_MOUSE
+				prof.is_connected = true
+			device_connection_changed.emit(p_id, prof.is_connected)
+
+## Configures InputMap programmatically for 4 players with explicit key bindings.
+## Overrides project.godot entries to guarantee Input.get_vector/is_action_pressed work.
+func _setup_default_input_map() -> void:
+	# P1: WASD + Space(fire) + F(ability) + Q(drone) + Shift(sprint) + C(crouch)
+	_bind_key("p1_move_left",   KEY_A)
+	_bind_key("p1_move_right",  KEY_D)
+	_bind_key("p1_move_up",     KEY_W)
+	_bind_key("p1_move_down",   KEY_S)
+	_bind_key("p1_fire",        KEY_SPACE)
+	_bind_mouse("p1_fire",      MOUSE_BUTTON_LEFT)
+	_bind_key("p1_ability",     KEY_F)
+	_bind_mouse("p1_ability",   MOUSE_BUTTON_RIGHT)
+	_bind_key("p1_drone_mode",  KEY_Q)
+	_bind_key("p1_interact",    KEY_E)
+	_bind_key("p1_sprint",      KEY_SHIFT)
+	_bind_key("p1_crouch",      KEY_C)
+
+	# P2: IJKL + U(fire) + H(ability) + Y(drone) + Ctrl(sprint) + N(crouch)
+	_bind_key("p2_move_left",   KEY_J)
+	_bind_key("p2_move_right",  KEY_L)
+	_bind_key("p2_move_up",     KEY_I)
+	_bind_key("p2_move_down",   KEY_K)
+	_bind_key("p2_fire",        KEY_U)
+	_bind_key("p2_ability",     KEY_H)
+	_bind_key("p2_drone_mode",  KEY_Y)
+	_bind_key("p2_interact",    KEY_O)
+	_bind_key("p2_sprint",      KEY_CTRL)
+	_bind_key("p2_crouch",      KEY_N)
+
+	# P3: Arrow keys + Slash(fire) + Comma(ability) + Shift(drone) + RCtrl(sprint) + Period(crouch)
+	_bind_key("p3_move_left",   KEY_LEFT)
+	_bind_key("p3_move_right",  KEY_RIGHT)
+	_bind_key("p3_move_up",     KEY_UP)
+	_bind_key("p3_move_down",   KEY_DOWN)
+	_bind_key("p3_fire",        KEY_SLASH)
+	_bind_key("p3_ability",     KEY_COMMA)
+	_bind_key("p3_drone_mode",  KEY_SHIFT)
+	_bind_key("p3_interact",    KEY_SEMICOLON)
+	_bind_key("p3_sprint",      KEY_CTRL)
+	_bind_key("p3_crouch",      KEY_PERIOD)
+
+	# P4: Numpad 8456 + Num0(fire) + Num7(ability) + NumMinus(drone) + NumPlus(sprint) + NumDot(crouch)
+	_bind_key("p4_move_left",   KEY_KP_4)
+	_bind_key("p4_move_right",  KEY_KP_6)
+	_bind_key("p4_move_up",     KEY_KP_8)
+	_bind_key("p4_move_down",   KEY_KP_5)
+	_bind_key("p4_fire",        KEY_KP_0)
+	_bind_key("p4_ability",     KEY_KP_7)
+	_bind_key("p4_drone_mode",  KEY_KP_SUBTRACT)
+	_bind_key("p4_interact",    KEY_KP_ENTER)
+	_bind_key("p4_sprint",      KEY_KP_ADD)
+	_bind_key("p4_crouch",      KEY_KP_PERIOD)
+
+## Creates or replaces a key binding for an action
+func _bind_key(action_name: String, keycode: Key) -> void:
+	if not InputMap.has_action(action_name):
+		InputMap.add_action(action_name)
+	# Remove old key events to avoid duplicates
+	var existing: Array[InputEvent] = InputMap.action_get_events(action_name)
+	for ev: InputEvent in existing:
+		if ev is InputEventKey:
+			InputMap.action_erase_event(action_name, ev)
+	var ev: InputEventKey = InputEventKey.new()
+	ev.keycode = keycode
+	InputMap.action_add_event(action_name, ev)
+
+## Adds a mouse button binding to an action (additive, does not clear keys)
+func _bind_mouse(action_name: String, button: MouseButton) -> void:
+	if not InputMap.has_action(action_name):
+		InputMap.add_action(action_name)
+	var ev: InputEventMouseButton = InputEventMouseButton.new()
+	ev.button_index = button
+	InputMap.action_add_event(action_name, ev)
+
+func _ensure_player_action(player_id: int, action_suffix: String) -> void:
+	var action_name: String = "p%d_%s" % [player_id, action_suffix]
+	if not InputMap.has_action(action_name):
+		InputMap.add_action(action_name)
+
+## Retrieves profile for specified player ID
+func get_profile(player_id: int) -> PlayerInputProfile:
+	return _profiles.get(player_id, null)
+
+## Returns 2D normalized movement vector for specified player ID
+func get_movement_vector(player_id: int) -> Vector2:
+	var left_action: String = "p%d_move_left" % player_id
+	var right_action: String = "p%d_move_right" % player_id
+	var up_action: String = "p%d_move_up" % player_id
+	var down_action: String = "p%d_move_down" % player_id
+
+	var input_vec: Vector2 = Input.get_vector(left_action, right_action, up_action, down_action)
+
+	var profile: PlayerInputProfile = get_profile(player_id)
+	if profile != null and profile.device_type == PlayerInputProfile.DeviceType.GAMEPAD and profile.device_id >= 0:
+		var joy_x: float = Input.get_joy_axis(profile.device_id, JOY_AXIS_LEFT_X)
+		var joy_y: float = Input.get_joy_axis(profile.device_id, JOY_AXIS_LEFT_Y)
+		var joy_vec: Vector2 = Vector2(joy_x, joy_y)
+		if joy_vec.length() > 0.2:
+			input_vec = joy_vec
+
+	if input_vec == Vector2.ZERO:
+		input_vec = _read_fallback_keyboard_vector(player_id)
+
+	return input_vec.normalized() if input_vec.length() > 1.0 else input_vec
+
+## Fallback mapping for testing 4 players on a single keyboard
+func _read_fallback_keyboard_vector(player_id: int) -> Vector2:
+	var vec: Vector2 = Vector2.ZERO
+	match player_id:
+		1: # WASD
+			if Input.is_key_pressed(KEY_A): vec.x -= 1.0
+			if Input.is_key_pressed(KEY_D): vec.x += 1.0
+			if Input.is_key_pressed(KEY_W): vec.y -= 1.0
+			if Input.is_key_pressed(KEY_S): vec.y += 1.0
+		2: # IJKL
+			if Input.is_key_pressed(KEY_J): vec.x -= 1.0
+			if Input.is_key_pressed(KEY_L): vec.x += 1.0
+			if Input.is_key_pressed(KEY_I): vec.y -= 1.0
+			if Input.is_key_pressed(KEY_K): vec.y += 1.0
+		3: # Arrow Keys
+			if Input.is_key_pressed(KEY_LEFT): vec.x -= 1.0
+			if Input.is_key_pressed(KEY_RIGHT): vec.x += 1.0
+			if Input.is_key_pressed(KEY_UP): vec.y -= 1.0
+			if Input.is_key_pressed(KEY_DOWN): vec.y += 1.0
+		4: # Numpad 4568
+			if Input.is_key_pressed(KEY_KP_4): vec.x -= 1.0
+			if Input.is_key_pressed(KEY_KP_6): vec.x += 1.0
+			if Input.is_key_pressed(KEY_KP_8): vec.y -= 1.0
+			if Input.is_key_pressed(KEY_KP_5): vec.y += 1.0
+	return vec
+
+## Checks if specified action is currently pressed (held down) for player ID
+func is_action_pressed(player_id: int, action_suffix: String) -> bool:
+	var action_name: String = "p%d_%s" % [player_id, action_suffix]
+	if InputMap.has_action(action_name) and Input.is_action_pressed(action_name):
+		return true
+
+	# Check gamepad trigger or button if profile is Gamepad
+	var profile: PlayerInputProfile = get_profile(player_id)
+	if profile != null and profile.device_type == PlayerInputProfile.DeviceType.GAMEPAD and profile.device_id >= 0:
+		if action_suffix == "fire":
+			if Input.is_joy_button_pressed(profile.device_id, JOY_BUTTON_RIGHT_SHOULDER) or Input.get_joy_axis(profile.device_id, JOY_AXIS_TRIGGER_RIGHT) > 0.5:
+				return true
+		elif action_suffix == "ability":
+			if Input.is_joy_button_pressed(profile.device_id, JOY_BUTTON_LEFT_SHOULDER) or Input.get_joy_axis(profile.device_id, JOY_AXIS_TRIGGER_LEFT) > 0.5:
+				return true
+
+	# Keyboard fallback shortcuts for testing fire / ability action:
+	if action_suffix == "fire":
+		match player_id:
+			1: return Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_E) or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+			2: return Input.is_key_pressed(KEY_U) or Input.is_key_pressed(KEY_O)
+			3: return Input.is_key_pressed(KEY_SLASH) or Input.is_key_pressed(KEY_SHIFT)
+			4: return Input.is_key_pressed(KEY_KP_0) or Input.is_key_pressed(KEY_KP_ENTER)
+	elif action_suffix == "ability":
+		match player_id:
+			1: return Input.is_key_pressed(KEY_F) or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
+			2: return Input.is_key_pressed(KEY_H)
+			3: return Input.is_key_pressed(KEY_PERIOD)
+			4: return Input.is_key_pressed(KEY_KP_7)
+
+	return false
+
+## Checks if specified action was pressed this frame for player ID
+func is_action_just_pressed(player_id: int, action_suffix: String) -> bool:
+	var action_name: String = "p%d_%s" % [player_id, action_suffix]
+	if InputMap.has_action(action_name) and Input.is_action_just_pressed(action_name):
+		return true
+
+	# Fallback just pressed logic for keyboard test triggers:
+	if action_suffix == "ability":
+		match player_id:
+			1: return Input.is_key_pressed(KEY_F) and Input.is_action_just_pressed(action_name) # simplified
+			2: return Input.is_key_pressed(KEY_H) and Input.is_action_just_pressed(action_name)
+			3: return Input.is_key_pressed(KEY_PERIOD) and Input.is_action_just_pressed(action_name)
+			4: return Input.is_key_pressed(KEY_KP_7) and Input.is_action_just_pressed(action_name)
+
+	return false
+
+
+============================================================
+# scripts\player_manager.gd
+============================================================
+# player_manager.gd
+# Technical Rationale: Centralized squad and player session lifecycle manager.
+# Responsible for spawning, tracking, and managing 2-4 local operators and their slot assignments.
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name PlayerManager
+extends Node
+
+## Signals
+signal player_spawned(p_id: int, operator_node: OperatorBase)
+signal player_despawned(p_id: int)
+signal squad_updated(active_count: int)
+
+## Preloaded Operator scene template
+@export var operator_scene: PackedScene = preload("res://scenes/operator_placeholder.tscn")
+
+## Reference to active InputManager instance
+var input_manager: InputManager = null
+
+## Active operator instances indexed by Player ID (1..4)
+var _active_operators: Dictionary = {}
+
+## Current active player count (2 to 4)
+var _active_player_count: int = 4
+
+## Spawn positions offset relative to parent node origin
+var _spawn_offsets: Array[Vector3] = [
+	Vector3(-2.0, 0.0, 0.0), # P1
+	Vector3(2.0, 0.0, 0.0),  # P2
+	Vector3(-2.0, 0.0, 3.0), # P3
+	Vector3(2.0, 0.0, 3.0)   # P4
+]
+
+func _ready() -> void:
+	pass
+
+## Initializes the PlayerManager with InputManager reference and desired player count
+func setup_squad(input_mgr: InputManager, initial_player_count: int = 4) -> void:
+	input_manager = input_mgr
+	set_active_player_count(initial_player_count)
+
+## Dynamically sets the active player count (2 to 4) and updates spawned operators
+func set_active_player_count(count: int) -> void:
+	_active_player_count = clampi(count, 2, 4)
+	_sync_spawned_operators()
+
+## Synchronizes active operators with current player count
+func _sync_spawned_operators() -> void:
+	for p_id: int in range(1, 5):
+		if p_id <= _active_player_count:
+			if not _active_operators.has(p_id):
+				_spawn_operator(p_id)
+		else:
+			if _active_operators.has(p_id):
+				_despawn_operator(p_id)
+
+	squad_updated.emit(_active_operators.size())
+
+## Spawns an operator for a specific Player ID
+func _spawn_operator(p_id: int) -> void:
+	if operator_scene == null:
+		push_error("[PlayerManager] Cannot spawn operator: operator_scene is null.")
+		return
+
+	var op_instance: OperatorBase = operator_scene.instantiate() as OperatorBase
+	if op_instance == null:
+		push_error("[PlayerManager] Instantiated scene is not an OperatorBase.")
+		return
+
+	op_instance.name = "OperatorP%d" % p_id
+	op_instance.player_id = p_id
+	op_instance.position = _spawn_offsets[p_id - 1]
+	
+	if input_manager != null:
+		op_instance.set_input_manager(input_manager)
+		
+	add_child(op_instance)
+	_active_operators[p_id] = op_instance
+	player_spawned.emit(p_id, op_instance)
+
+## Despawns an operator for a specific Player ID
+func _despawn_operator(p_id: int) -> void:
+	var op: OperatorBase = _active_operators.get(p_id, null) as OperatorBase
+	if op != null:
+		_active_operators.erase(p_id)
+		player_despawned.emit(p_id)
+		op.queue_free()
+
+## Returns the active OperatorBase instance for a Player ID
+func get_operator(p_id: int) -> OperatorBase:
+	return _active_operators.get(p_id, null) as OperatorBase
+
+## Returns array of all currently active OperatorBase instances
+func get_all_operators() -> Array[OperatorBase]:
+	var list: Array[OperatorBase] = []
+	for op: OperatorBase in _active_operators.values():
+		if is_instance_valid(op):
+			list.append(op)
+	return list
+
+## Calculates center of mass (centroid) of active squad operators
+func get_squad_centroid() -> Vector3:
+	var ops: Array[OperatorBase] = get_all_operators()
+	if ops.is_empty():
+		return Vector3.ZERO
+		
+	var sum_pos: Vector3 = Vector3.ZERO
+	for op: OperatorBase in ops:
+		sum_pos += op.global_position
+		
+	return sum_pos / float(ops.size())
+
+
+============================================================
+# scripts\sandbox_test_scene.gd
+============================================================
+# sandbox_test_scene.gd
+# Technical Rationale: Entry script for SANDBOX-01.
+# Integrates PlayerManager, SquadHUD, InputManager, CameraController, SquadVisionRegistry,
+# Synthesis Points, AICore (Etapa 6), and ResourceManager + pickups (Etapa 7).
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name SandboxTestScene
+extends Node3D
+
+@onready var input_manager: InputManager = $InputManager if has_node("InputManager") else null
+@onready var player_manager: PlayerManager = $PlayerManager if has_node("PlayerManager") else null
+@onready var camera_controller: CameraController = $CameraController if has_node("CameraController") else null
+@onready var squad_hud: SquadHUD = $SquadHUD if has_node("SquadHUD") else null
+@onready var squad_vision_registry: SquadVisionRegistry = $SquadVisionRegistry if has_node("SquadVisionRegistry") else null
+
+## References to synthesis zones
+var _synthesis_zones: Array[Area3D] = []
+
+## AICore module reference (Etapa 6)
+var ai_core: AICore = null
+
+## ResourceManager module reference (Etapa 7)
+var resource_manager: ResourceManager = null
+
+## Debug overlay label
+var _debug_label: Label = null
+
+## Per-operator aim cone overlays: player_id -> {mi: MeshInstance3D, imm: ImmediateMesh, op: OperatorBase}
+var _aim_overlays: Dictionary = {}
+
+func _ready() -> void:
+	_initialize_etapa_4_sandbox()
+	_initialize_ai_core()
+	_initialize_resource_system()
+	_setup_debug_overlay()
+	# Force window focus so keyboard input is captured immediately
+	call_deferred("_grab_window_focus")
+
+func _grab_window_focus() -> void:
+	get_viewport().get_window().grab_focus()
+
+func _setup_debug_overlay() -> void:
+	var canvas: CanvasLayer = CanvasLayer.new()
+	canvas.layer = 100
+	add_child(canvas)
+	_debug_label = Label.new()
+	_debug_label.position = Vector2(10, 10)
+	_debug_label.add_theme_font_size_override("font_size", 18)
+	_debug_label.add_theme_color_override("font_color", Color(1, 1, 0))
+	_debug_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
+	_debug_label.add_theme_constant_override("shadow_offset_x", 2)
+	_debug_label.add_theme_constant_override("shadow_offset_y", 2)
+	canvas.add_child(_debug_label)
+
+func _process(_delta: float) -> void:
+	_update_debug_overlay()
+	_update_aim_overlays()
+
+func _update_debug_overlay() -> void:
+	if _debug_label == null or input_manager == null:
+		return
+	var p1_vec: Vector2 = input_manager.get_movement_vector(1)
+	var p1_firing: bool = input_manager.is_action_pressed(1, "fire")
+	var win_focused: bool = get_viewport().get_window().has_focus()
+	_debug_label.text = "[DEBUG] Ventana foco: %s\nP1 WASD: (%.2f, %.2f)   FIRE(Space/Click): %s\nP2 IJKL: fire=U  |  P3 Flechas: fire=/" % [
+		"✓ SÍ" if win_focused else "✗ NO — hacé clic en la ventana!",
+		p1_vec.x, p1_vec.y,
+		"■ DISPARANDO" if p1_firing else "○"
+	]
+
+func _physics_process(_delta: float) -> void:
+	if player_manager != null:
+		var centroid: Vector3 = player_manager.get_squad_centroid()
+		var ops: Array[OperatorBase] = player_manager.get_all_operators()
+		for op: OperatorBase in ops:
+			op.update_squad_separation(centroid)
+			
+		# Dynamic camera target updates for Pilot Mode
+		_update_camera_targets()
+		_process_synthesis_zones()
+
+## Initializes Etapa 4 Managers, Vision Registry, HUD, and camera binding
+func _initialize_etapa_4_sandbox() -> void:
+	if input_manager == null:
+		input_manager = InputManager.new()
+		input_manager.name = "InputManager"
+		add_child(input_manager)
+
+	if squad_vision_registry == null:
+		squad_vision_registry = SquadVisionRegistry.new()
+		squad_vision_registry.name = "SquadVisionRegistry"
+		add_child(squad_vision_registry)
+
+	if player_manager == null:
+		player_manager = PlayerManager.new()
+		player_manager.name = "PlayerManager"
+		add_child(player_manager)
+
+	# Connect signals BEFORE setup_squad so player_spawned fires with the handler already attached
+	player_manager.squad_updated.connect(_on_squad_updated)
+	player_manager.player_spawned.connect(_on_player_spawned)
+	player_manager.setup_squad(input_manager, 4)
+
+	if squad_hud != null:
+		squad_hud.setup_hud(player_manager, input_manager, squad_vision_registry)
+
+	# Locate and bind any Area3D nodes in "synthesis_points" group
+	_synthesis_zones.clear()
+	var zones: Array[Node] = get_tree().get_nodes_in_group("synthesis_points")
+	for node: Node in zones:
+		if node is Area3D:
+			_synthesis_zones.append(node as Area3D)
+
+	_on_squad_updated(4)
+	_spawn_boundary_walls()
+	print("[SandboxTestScene] SANDBOX-01 base initialized. Drone Gen 1, Escort, Stationary, Pilot Modes active.")
+
+## Callback when a new player operator spawns
+func _on_player_spawned(_p_id: int, op: OperatorBase) -> void:
+	if op != null:
+		if op.vision_cone != null and squad_vision_registry != null:
+			squad_vision_registry.register_provider(op.vision_cone)
+		op.damage_dealt.connect(_on_operator_damage_dealt)
+		op.drone_status_changed.connect(_on_drone_status_changed)
+		op.weapon_fired.connect(_on_weapon_fired.bind(op))
+		_setup_operator_aim_cone(op)
+
+## Callback when drone status changes (registered to shared squad vision)
+func _on_drone_status_changed(p_id: int, has_drone: bool, mode: String) -> void:
+	print("[SQUAD STATUS] Player P%d Drone status updated: Active = %s, Mode = %s" % [p_id, str(has_drone), mode])
+	if squad_vision_registry != null:
+		var op: OperatorBase = player_manager.get_operator(p_id)
+		if op != null:
+			if has_drone and op.drone != null and op.drone.vision_cone != null:
+				squad_vision_registry.register_provider(op.drone.vision_cone)
+			elif not has_drone and op.drone == null:
+				# Re-evaluate vision registry
+				squad_vision_registry._recalculate_squad_vision()
+
+## Callback when damage is dealt with cover mitigation
+func _on_operator_damage_dealt(target: OperatorBase, damage: float, mitigated_by_cover: bool) -> void:
+	var msg: String = "[COMBAT] Operator P%d hit for %.1f damage" % [target.player_id, damage]
+	if mitigated_by_cover:
+		msg += " [MITIGATED BY COVER -50%]"
+	print(msg)
+	# Visual: floating damage number at target position
+	_spawn_damage_number(target.global_position + Vector3(0.0, 2.5, 0.0), damage, mitigated_by_cover)
+	# Visual: red flash on hit operator
+	_flash_operator(target)
+
+## Creates an ImmediateMesh aim cone overlay for an operator
+func _setup_operator_aim_cone(op: OperatorBase) -> void:
+	var mi: MeshInstance3D = MeshInstance3D.new()
+	var imm: ImmediateMesh = ImmediateMesh.new()
+	mi.mesh = imm
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.vertex_color_use_as_albedo = true
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.no_depth_test = false
+	mi.material_override = mat
+	add_child(mi)
+	_aim_overlays[op.player_id] = {"mi": mi, "imm": imm, "op": op}
+
+## Rebuilds all operator aim cone meshes based on current rotation and LoS state
+func _update_aim_overlays() -> void:
+	for entry: Dictionary in _aim_overlays.values():
+		var imm: ImmediateMesh = entry["imm"] as ImmediateMesh
+		var op: OperatorBase = entry["op"] as OperatorBase
+		if not is_instance_valid(op) or imm == null:
+			continue
+		imm.clear_surfaces()
+		if op.is_incapacitated:
+			continue
+		_rebuild_aim_cone(imm, op)
+
+## Draws the weapon arc with real wall occlusion using per-ray LoS clipping.
+## Each ray casts from eye height; hit points project down to floor level.
+## Result: the cone is trimmed exactly where walls / objects block it.
+func _rebuild_aim_cone(imm: ImmediateMesh, op: OperatorBase) -> void:
+	var pos: Vector3    = op.global_position + Vector3(0.0, 0.06, 0.0)
+	var forward: Vector3 = Vector3(-sin(op.rotation.y), 0.0, -cos(op.rotation.y)).normalized()
+	var range_d: float  = op.weapon_range
+	var eye: Vector3    = op.global_position + Vector3(0.0, 1.2, 0.0)
+	var exclude: Array[RID] = [op.get_rid()]
+
+	# Cast one ray per step; collect floor-level hit points
+	var half_rad: float    = deg_to_rad(15.0)
+	var steps: int         = 20          # 1.5° per step → smooth arc
+	var hit_pts: Array[Vector3] = []
+	var has_enemy: bool    = false
+
+	for i: int in range(steps + 1):
+		var angle: float     = -half_rad + (float(i) / float(steps)) * 2.0 * half_rad
+		var ray_dir: Vector3 = forward.rotated(Vector3.UP, angle).normalized()
+		var ray_end: Vector3 = eye + ray_dir * range_d
+
+		var los: LineOfSightQuery.LoSResult = LineOfSightQuery.test_los(
+			op, eye, ray_end, exclude, op.combat_collision_mask
+		)
+
+		var hp: Vector3
+		if los.hit_collider != null:
+			hp = los.hit_position
+			if los.hit_collider is OperatorBase:
+				has_enemy = true
+		else:
+			hp = ray_end
+		hp.y = pos.y
+		hit_pts.append(hp)
+
+	# --- Filled cone polygon (fan from operator origin) ---
+	var fill_col: Color = Color(1.0, 0.15, 0.15, 0.32) if has_enemy else Color(0.22, 0.88, 1.0, 0.2)
+	imm.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i: int in range(hit_pts.size() - 1):
+		imm.surface_set_color(fill_col)
+		imm.surface_add_vertex(pos)
+		imm.surface_set_color(fill_col)
+		imm.surface_add_vertex(hit_pts[i])
+		imm.surface_set_color(fill_col)
+		imm.surface_add_vertex(hit_pts[i + 1])
+	imm.surface_end()
+
+	# --- Bright arc edge along the hit-point boundary ---
+	var edge_col: Color  = Color(fill_col.r, fill_col.g, fill_col.b, 0.85)
+	var edge_w: float    = 0.055
+	imm.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i: int in range(hit_pts.size() - 1):
+		var p0: Vector3  = hit_pts[i]
+		var p1: Vector3  = hit_pts[i + 1]
+		var seg: Vector3 = (p1 - p0)
+		if seg.length_squared() < 0.0001:
+			continue
+		var perp: Vector3 = seg.normalized().cross(Vector3.UP) * edge_w
+		# Two triangles per edge quad
+		imm.surface_set_color(edge_col); imm.surface_add_vertex(p0 - perp)
+		imm.surface_set_color(edge_col); imm.surface_add_vertex(p0 + perp)
+		imm.surface_set_color(edge_col); imm.surface_add_vertex(p1 - perp)
+		imm.surface_set_color(edge_col); imm.surface_add_vertex(p0 + perp)
+		imm.surface_set_color(edge_col); imm.surface_add_vertex(p1 + perp)
+		imm.surface_set_color(edge_col); imm.surface_add_vertex(p1 - perp)
+	imm.surface_end()
+
+	# --- Side rays (left & right boundary lines from operator to first wall hit) ---
+	var side_col: Color = Color(edge_col.r, edge_col.g, edge_col.b, 0.6)
+	for side_pt: Vector3 in [hit_pts[0], hit_pts[hit_pts.size() - 1]]:
+		var seg: Vector3 = side_pt - pos
+		if seg.length_squared() < 0.001:
+			continue
+		var perp: Vector3 = seg.normalized().cross(Vector3.UP) * (edge_w * 0.6)
+		imm.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+		imm.surface_set_color(side_col); imm.surface_add_vertex(pos - perp)
+		imm.surface_set_color(side_col); imm.surface_add_vertex(pos + perp)
+		imm.surface_set_color(side_col); imm.surface_add_vertex(side_pt - perp)
+		imm.surface_set_color(side_col); imm.surface_add_vertex(pos + perp)
+		imm.surface_set_color(side_col); imm.surface_add_vertex(side_pt + perp)
+		imm.surface_set_color(side_col); imm.surface_add_vertex(side_pt - perp)
+		imm.surface_end()
+
+## Spawns invisible boundary walls around the 60x60 floor so operators can't fall off
+func _spawn_boundary_walls() -> void:
+	var half: float = 30.0
+	var h: float = 4.0   # wall height
+	var t: float = 0.5   # wall thickness
+	var configs: Array = [
+		[Vector3(0.0,    h * 0.5,  half), Vector3(60.0, h, t)],  # North
+		[Vector3(0.0,    h * 0.5, -half), Vector3(60.0, h, t)],  # South
+		[Vector3( half,  h * 0.5,  0.0),  Vector3(t, h, 60.0)],  # East
+		[Vector3(-half,  h * 0.5,  0.0),  Vector3(t, h, 60.0)],  # West
+	]
+	for cfg: Array in configs:
+		var wall: StaticBody3D = StaticBody3D.new()
+		wall.position = cfg[0] as Vector3
+		var shape_node: CollisionShape3D = CollisionShape3D.new()
+		var box: BoxShape3D = BoxShape3D.new()
+		box.size = cfg[1] as Vector3
+		shape_node.shape = box
+		wall.add_child(shape_node)
+		add_child(wall)
+	print("[SandboxTestScene] Boundary walls spawned (60x60 arena).")
+
+## Visual: shot tracer stops at the actual hit point (wall or max range)
+func _on_weapon_fired(origin: Vector3, direction: Vector3, shooter: OperatorBase) -> void:
+	# Find real hit position — tracer should NOT pass through walls
+	var ray_end: Vector3 = origin + direction * shooter.weapon_range
+	var los: LineOfSightQuery.LoSResult = LineOfSightQuery.test_los(
+		shooter, origin, ray_end, [shooter.get_rid()], shooter.combat_collision_mask
+	)
+	var actual_end: Vector3 = los.hit_position if los.hit_collider != null else ray_end
+	_spawn_muzzle_flash(origin, shooter.player_id)
+	_spawn_shot_tracer(origin, actual_end, shooter.player_id)
+
+## Spawns a brief bright sphere at the muzzle (confirms signal is firing)
+func _spawn_muzzle_flash(pos: Vector3, p_id: int) -> void:
+	var flash: MeshInstance3D = MeshInstance3D.new()
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = 0.15
+	sphere.height = 0.3
+	flash.mesh = sphere
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.emission_enabled = true
+	var colors: Array[Color] = [
+		Color(1.0, 0.6, 0.1), Color(0.4, 0.8, 1.0),
+		Color(0.4, 1.0, 0.4), Color(1.0, 1.0, 0.2),
+	]
+	mat.emission = colors[clampi(p_id - 1, 0, 3)]
+	mat.albedo_color = Color.WHITE
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	flash.material_override = mat
+	add_child(flash)
+	flash.global_position = pos
+	var tw: Tween = create_tween()
+	tw.tween_property(mat, "albedo_color:a", 0.0, 0.1)
+	tw.tween_callback(flash.queue_free)
+
+## Spawns a thin glowing tracer box along the shot direction
+func _spawn_shot_tracer(from: Vector3, to: Vector3, p_id: int) -> void:
+	var dir: Vector3 = to - from
+	var length: float = dir.length()
+	if length < 0.01:
+		return
+	dir = dir.normalized()
+
+	var tracer: MeshInstance3D = MeshInstance3D.new()
+	var box: BoxMesh = BoxMesh.new()
+	box.size = Vector3(0.05, 0.05, length)   # BoxMesh extends along Z by default
+	tracer.mesh = box
+
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.emission_enabled = true
+	var colors: Array[Color] = [
+		Color(1.0, 0.35, 0.35),   # P1 red
+		Color(0.35, 0.65, 1.0),   # P2 blue
+		Color(0.35, 1.0, 0.45),   # P3 green
+		Color(1.0, 0.95, 0.25),   # P4 yellow
+	]
+	var col: Color = colors[clampi(p_id - 1, 0, 3)]
+	mat.emission = col * 2.0
+	mat.albedo_color = col
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	tracer.material_override = mat
+
+	add_child(tracer)
+	tracer.global_position = (from + to) * 0.5
+
+	# Build basis: Z axis = shot direction, Y axis = up (or right if near-vertical)
+	var world_up: Vector3 = Vector3.UP
+	if absf(dir.dot(world_up)) > 0.99:
+		world_up = Vector3.RIGHT
+	var right: Vector3 = dir.cross(world_up).normalized()
+	var up: Vector3 = right.cross(dir).normalized()
+	tracer.global_transform.basis = Basis(right, up, dir)
+
+	# Fade and destroy in 0.25s
+	var tw: Tween = create_tween()
+	tw.tween_property(mat, "albedo_color:a", 0.0, 0.25)
+	tw.tween_callback(tracer.queue_free)
+
+## Spawns a floating damage number above the hit position
+func _spawn_damage_number(world_pos: Vector3, damage: float, mitigated: bool) -> void:
+	var lbl: Label3D = Label3D.new()
+	lbl.text = "-%.0f" % damage
+	if mitigated:
+		lbl.text += " [COV]"
+	lbl.font_size = 48
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.no_depth_test = true
+	lbl.modulate = Color(1.0, 0.2, 0.2) if not mitigated else Color(1.0, 0.55, 0.1)
+	lbl.outline_size = 8
+	add_child(lbl)
+	lbl.global_position = world_pos
+	# Animate: float upward 2 units, fade to transparent over 0.9s
+	var start_y: float = world_pos.y
+	var tw: Tween = create_tween()
+	tw.set_parallel(true)
+	tw.tween_method(func(y: float) -> void:
+		if is_instance_valid(lbl):
+			lbl.global_position.y = y
+	, start_y, start_y + 2.0, 0.9)
+	tw.tween_property(lbl, "modulate:a", 0.0, 0.9)
+	tw.chain().tween_callback(lbl.queue_free)
+
+## Briefly flashes an operator's mesh white/red on hit
+func _flash_operator(op: OperatorBase) -> void:
+	if op == null or not is_instance_valid(op):
+		return
+	var mesh: MeshInstance3D = op.get_node_or_null("MeshInstance3D") as MeshInstance3D
+	if mesh == null:
+		return
+	var original_mat: Material = mesh.material_override
+	var flash_mat: StandardMaterial3D = StandardMaterial3D.new()
+	flash_mat.albedo_color = Color.WHITE
+	flash_mat.emission_enabled = true
+	flash_mat.emission = Color(1.0, 0.1, 0.1)
+	mesh.material_override = flash_mat
+	var tw: Tween = create_tween()
+	tw.tween_interval(0.15)
+	tw.tween_callback(func() -> void:
+		if is_instance_valid(mesh):
+			mesh.material_override = original_mat
+	)
+
+## Callback when squad player count changes
+func _on_squad_updated(_active_count: int) -> void:
+	_update_camera_targets()
+
+## Recalculates CameraController targets based on active Operator/Drone pilot status
+func _update_camera_targets() -> void:
+	if camera_controller == null or player_manager == null:
+		return
+
+	var ops: Array[OperatorBase] = player_manager.get_all_operators()
+	var node3d_targets: Array[Node3D] = []
+	
+	for op: OperatorBase in ops:
+		if op.is_piloting_drone and op.drone != null and is_instance_valid(op.drone):
+			node3d_targets.append(op.drone as Node3D)
+		else:
+			node3d_targets.append(op as Node3D)
+			
+	camera_controller.targets = node3d_targets
+
+## Handles reconstruction logic if operator enters a Synthesis zone lacking a Drone
+func _process_synthesis_zones() -> void:
+	if player_manager == null:
+		return
+
+	var ops: Array[OperatorBase] = player_manager.get_all_operators()
+	for op: OperatorBase in ops:
+		if op.drone == null or not op.has_drone_active:
+			for zone: Area3D in _synthesis_zones:
+				if zone.overlaps_body(op):
+					op.rebuild_drone()
+					print("[SYNTHESIS] Rebuilt Drone Gen 1 for Operator P%d." % op.player_id)
+					break
+
+## ──────────────────────────────────────────────
+## ETAPA 6 — AI CORE INITIALIZATION
+## ──────────────────────────────────────────────
+
+## Instantiates AICore module and places it on the CorePlatform (Z = -20)
+func _initialize_ai_core() -> void:
+	ai_core = AICore.new()
+	ai_core.name = "AICore"
+	## CorePlatform is at (0, 0.5, -20) — place Core just above it
+	ai_core.position = Vector3(0.0, 1.5, -20.0)
+	## Configurable parameters (exposed for future balance tuning)
+	ai_core.hack_speed_percent_per_second = 5.0
+	ai_core.degradation_percent_per_tick = 10.0
+	ai_core.degradation_interval_seconds = 30.0
+	ai_core.capture_threshold_percent = 100.0
+	ai_core.perimeter_size = Vector3(10.0, 3.0, 10.0)
+	add_child(ai_core)
+
+	## Connect AICore signals for console logging and SquadHUD integration
+	ai_core.hack_started.connect(_on_core_hack_started)
+	ai_core.hack_progress_changed.connect(_on_core_progress_changed)
+	ai_core.hack_contested.connect(_on_core_contested)
+	ai_core.hack_degrading.connect(_on_core_degrading)
+	ai_core.hack_completed.connect(_on_core_completed)
+	ai_core.ownership_changed.connect(_on_core_ownership_changed)
+
+	## Notify SquadHUD of the AICore reference
+	if squad_hud != null:
+		squad_hud.set_ai_core(ai_core)
+
+	print("[SandboxTestScene] AICore initialized at CorePlatform (Z=-20). Perimeter: 10x3x10m.")
+
+func _on_core_hack_started(team_id: int) -> void:
+	print("[CORE] *** HACK STARTED — Team %d is hacking the AI Core ***" % team_id)
+
+func _on_core_progress_changed(progress: float, team_id: int) -> void:
+	if squad_hud != null:
+		squad_hud.update_core_status(progress, ai_core.get_current_state() if ai_core != null else HackController.CoreState.IDLE)
+	## Throttle to avoid log spam — only print at each 10% threshold
+	var threshold: int = int(progress / 10.0) * 10
+	if threshold > 0 and int(progress) % 10 < 2:
+		print("[CORE] Progress: %d%% — Team %d" % [int(progress), team_id])
+
+func _on_core_contested() -> void:
+	if squad_hud != null:
+		squad_hud.update_core_status(ai_core.get_progress() if ai_core != null else 0.0, HackController.CoreState.CONTESTED)
+
+func _on_core_degrading(progress: float) -> void:
+	print("[CORE] *** DEGRADATION — Progress dropping to %.1f%% ***" % progress)
+	if squad_hud != null:
+		squad_hud.update_core_status(progress, HackController.CoreState.DEGRADED)
+
+func _on_core_completed(team_id: int) -> void:
+	print("[CORE] *** CORE CAPTURED — Team %d controls the AI Core! ***" % team_id)
+	if squad_hud != null:
+		squad_hud.update_core_status(100.0, HackController.CoreState.CAPTURED)
+
+func _on_core_ownership_changed(new_owner: int) -> void:
+	print("[CORE] Ownership transferred to Team %d" % new_owner)
+
+## ──────────────────────────────────────────────
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		match event.keycode:
+			KEY_R:
+				get_tree().reload_current_scene()
+			KEY_2:
+				print("[SandboxTestScene] Testing 2-Player Squad")
+				if player_manager != null:
+					player_manager.set_active_player_count(2)
+			KEY_3:
+				print("[SandboxTestScene] Testing 3-Player Squad")
+				if player_manager != null:
+					player_manager.set_active_player_count(3)
+			KEY_4:
+				print("[SandboxTestScene] Testing 4-Player Squad")
+				if player_manager != null:
+					player_manager.set_active_player_count(4)
+
+## ──────────────────────────────────────────────
+## ETAPA 7 — RESOURCE SYSTEM INITIALIZATION
+## ──────────────────────────────────────────────
+
+## Initialises ResourceManager, pre-placed pickups and salvageable WreckSites for SANDBOX-01.
+## Pickup positions chosen to validate all three routes without modifying map geometry.
+func _initialize_resource_system() -> void:
+	## 1. Create and register ResourceManager
+	resource_manager = ResourceManager.new()
+	resource_manager.name = "ResourceManager"
+	add_child(resource_manager)
+
+	## Connect signals for console telemetry
+	resource_manager.pickup_collected.connect(_on_resource_collected)
+	resource_manager.wreck_salvaged.connect(_on_wreck_salvaged)
+
+	## 2. Pre-placed pickups — one per route + one at spawn
+	## Spawn area (safe collection to test basic pickup)
+	resource_manager.spawn_pickup(
+		ResourceInventory.TYPE_MAINTENANCE, 10,
+		Vector3(0.0, 0.1, 7.0), self
+	)
+	## Left route (Ruta Oeste — near RouteLeft_LowCover)
+	resource_manager.spawn_pickup(
+		ResourceInventory.TYPE_MAINTENANCE, 8,
+		Vector3(-20.0, 0.1, -2.0), self
+	)
+	## Central route (Ruta Central — near Center_LowCover1)
+	resource_manager.spawn_pickup(
+		ResourceInventory.TYPE_MAINTENANCE, 12,
+		Vector3(2.0, 0.1, -8.0), self
+	)
+	## Right route elevated platform (Ruta Derecha — top of ramp)
+	resource_manager.spawn_pickup(
+		ResourceInventory.TYPE_MAINTENANCE, 15,
+		Vector3(18.0, 2.0, -5.0), self
+	)
+	## Near Core perimeter — high-value pickup, dangerous to collect
+	resource_manager.spawn_pickup(
+		ResourceInventory.TYPE_MAINTENANCE, 20,
+		Vector3(3.0, 0.1, -18.0), self
+	)
+
+	## 3. Pre-placed WreckSalvage nodes for testing salvage mechanic
+	_spawn_wreck_salvage(Vector3(-15.0, 0.1, -8.0), 8)   ## Left route wreck
+	_spawn_wreck_salvage(Vector3(5.0, 0.1, -13.0), 12)  ## Central route wreck
+
+	print("[SandboxTestScene] ResourceManager initialized. 5 pickups + 2 pre-placed wrecks spawned.")
+
+## Spawns a WreckSalvage node at world_pos with given component yield
+func _spawn_wreck_salvage(world_pos: Vector3, components: int) -> void:
+	var wreck: WreckSalvage = WreckSalvage.new()
+	wreck.components_per_salvage = components
+	add_child(wreck)
+	wreck.global_position = world_pos
+	resource_manager.register_wreck_salvage(wreck)
+
+func _on_resource_collected(resource_type: String, amount: int, collector_id: int) -> void:
+	print("[RESOURCES] P%d collected %d x %s" % [collector_id, amount, resource_type])
+
+func _on_wreck_salvaged(salvager_id: int, components: int) -> void:
+	print("[RESOURCES] P%d salvaged wreck — %d maintenance components spawned" % [salvager_id, components])
+
+
+============================================================
+# scripts\camera_controller.gd
+============================================================
+# camera_controller.gd
+# Technical Rationale: Implements DT-01 (Top-Down Isometric Camera with Group Centroid & Dynamic Zoom).
+# Designed for 2-4 local cooperative players sharing a single viewport.
+# Adheres to ADR-0001 (GDScript 2.x Strict Typing).
+
+class_name CameraController
+extends Node3D
+
+## Active targets to track (Operator CharacterBodies, Drones, or Objectives)
+@export var targets: Array[Node3D] = []
+
+## Fixed pitch angle for Top-Down Isometric perspective (DT-01: 60-70 degrees)
+@export_range(45.0, 80.0) var pitch_angle_degrees: float = 65.0
+
+## Minimum height/distance offset for closest camera zoom
+@export var min_zoom_distance: float = 12.0
+
+## Maximum height/distance offset for farthest camera zoom (when players separate)
+@export var max_zoom_distance: float = 28.0
+
+## Padding factor applied to player group bounding box to trigger zoom
+@export var bounding_box_padding: float = 6.0
+
+## Smoothing speed for camera position movement (lerp weight factor)
+@export var follow_speed: float = 6.0
+
+## Smoothing speed for camera zoom transitions
+@export var zoom_speed: float = 4.0
+
+## Node reference to child Camera3D
+@onready var camera: Camera3D = $Camera3D
+
+## Internal current target position (centroid of player group)
+var _target_centroid: Vector3 = Vector3.ZERO
+
+## Internal target distance offset along local Z axis
+var _current_zoom_distance: float = 16.0
+
+func _ready() -> void:
+	_setup_camera_transform()
+
+func _physics_process(delta: float) -> void:
+	if targets.is_empty():
+		_find_targets_in_group()
+		if targets.is_empty():
+			return
+
+	_update_centroid_and_zoom()
+	_apply_smooth_transform(delta)
+
+## Automatically discovers nodes in the "players" group if no explicit targets are set
+func _find_targets_in_group() -> void:
+	var group_nodes: Array[Node] = get_tree().get_nodes_in_group("players")
+	for node: Node in group_nodes:
+		if node is Node3D and not targets.has(node as Node3D):
+			targets.append(node as Node3D)
+
+## Configures initial rotation and camera hierarchy
+func _setup_camera_transform() -> void:
+	# Set controller pitch angle
+	rotation_degrees.x = -pitch_angle_degrees
+	rotation_degrees.y = 0.0
+	rotation_degrees.z = 0.0
+	
+	if camera == null:
+		# Auto-instantiate Camera3D if child node is missing in scene
+		camera = Camera3D.new()
+		camera.name = "Camera3D"
+		add_child(camera)
+	
+	# Position Camera3D looking down Z axis
+	camera.position = Vector3(0.0, 0.0, _current_zoom_distance)
+	camera.rotation_degrees = Vector3.ZERO
+
+## Calculates centroid (center of mass) and bounding spread of all active targets
+func _update_centroid_and_zoom() -> void:
+	var valid_targets: int = 0
+	var sum_position: Vector3 = Vector3.ZERO
+	var min_pos: Vector3 = Vector3(INF, INF, INF)
+	var max_pos: Vector3 = Vector3(-INF, -INF, -INF)
+
+	for target: Node3D in targets:
+		if is_instance_valid(target) and target.is_inside_tree() and target.visible:
+			var pos: Vector3 = target.global_position
+			sum_position += pos
+			min_pos = min_pos.min(pos)
+			max_pos = max_pos.max(pos)
+			valid_targets += 1
+
+	if valid_targets > 0:
+		_target_centroid = sum_position / float(valid_targets)
+		
+		# Calculate maximum spread distance along X and Z axes
+		var spread_x: float = max_pos.x - min_pos.x
+		var spread_z: float = max_pos.z - min_pos.z
+		var max_spread: float = max(spread_x, spread_z) + bounding_box_padding
+
+		# Map spread to zoom distance range
+		var target_zoom: float = min_zoom_distance + (max_spread * 0.8)
+		_current_zoom_distance = clampf(target_zoom, min_zoom_distance, max_zoom_distance)
+
+## Interpolates position and camera offset smoothly
+func _apply_smooth_transform(delta: float) -> void:
+	# Interpolate centroid position
+	global_position = global_position.lerp(_target_centroid, follow_speed * delta)
+	
+	# Interpolate camera zoom offset along local Z
+	if camera != null:
+		var target_cam_pos: Vector3 = Vector3(0.0, 0.0, _current_zoom_distance)
+		camera.position = camera.position.lerp(target_cam_pos, zoom_speed * delta)
+
+## Register a new target (e.g. Drone in Pilot Mode or Objective Marker)
+func add_target(new_target: Node3D) -> void:
+	if new_target != null and not targets.has(new_target):
+		targets.append(new_target)
+
+## Unregister a target (e.g. when an operator is incapacitated or leaves)
+func remove_target(target_to_remove: Node3D) -> void:
+	targets.erase(target_to_remove)
+
