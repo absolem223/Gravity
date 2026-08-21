@@ -109,9 +109,9 @@ func is_entity_detected_by_team(entity: Node3D, team_id: int) -> bool:
 ## Query: Returns array of all targets currently visible to the squad
 func get_all_squad_detected_targets() -> Array[Node3D]:
 	var list: Array[Node3D] = []
-	for key: Node3D in _squad_detected_targets.keys():
+	for key: Variant in _squad_detected_targets.keys():
 		if is_instance_valid(key):
-			list.append(key)
+			list.append(key as Node3D)
 	return list
 
 ## ──────────────────────────────────────────────
