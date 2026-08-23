@@ -54,6 +54,7 @@ func configure(config: Dictionary) -> void:
 	magazine.capacity = config.get("magazine_capacity", magazine.capacity)
 	magazine.current_rounds = mini(magazine.capacity, magazine.current_rounds)
 	reserve.max_magazines = config.get("magazines_initial", reserve.max_magazines)
+	reserve.unlimited_magazines = config.get("reserve_unlimited", reserve.unlimited_magazines)
 	reload.reload_duration = config.get("reload_duration", reload.reload_duration)
 	fire_mode.type = config.get("fire_mode_type", fire_mode.type)
 	fire_mode.fire_rate = config.get("fire_rate", fire_mode.fire_rate)

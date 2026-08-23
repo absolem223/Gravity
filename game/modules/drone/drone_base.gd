@@ -27,16 +27,16 @@ var operator: OperatorBase = null
 @export var speed: float = 8.0
 
 ## Acceleration rate in Pilot Mode
-@export var acceleration: float = 24.0
+@export var acceleration: float = 12.0
 
 ## Deceleration rate in Pilot Mode
-@export var deceleration: float = 30.0
+@export var deceleration: float = 16.0
 
 ## Follow distance behind operator (Escort Mode)
 @export var follow_distance: float = 1.8
 
 ## Height offset relative to operator (Escort Mode)
-@export var follow_height_offset: float = 1.6
+@export var follow_height_offset: float = 2.4
 
 ## Lerp factor for following operator
 @export var follow_lerp_speed: float = 5.0
@@ -45,20 +45,22 @@ var operator: OperatorBase = null
 @export var max_range_from_operator: float = 28.0
 
 ## Maximum health points
-@export var health_max: float = 50.0
+@export var health_max: float = 500.0
 
 ## Preloaded WreckSalvage scene (Etapa 7 — extends WreckSite with salvage interaction)
 @export var wreck_site_scene: PackedScene = preload("res://scenes/wreck_site.tscn")
 
 ## Current health points
-var health_current: float = 50.0
+var health_current: float = 500.0
 
 # ── Drone combat (reuses WeaponBase + LineOfSightQuery infrastructure) ──────
 ## Drone weapon is intentionally weaker and shorter-ranged than the operator's
 ## GRAVITY-1 (operator: 18 dmg / 20 m). These stay exposed for scene tuning.
 @export var weapon_damage: float = 8.0
 @export var weapon_fire_rate: float = 0.6
-@export var weapon_range: float = 13.0
+@export var weapon_range: float = 12.0
+## Visual Aim Cone Field of View in degrees (slightly narrower than passive 90° FOV)
+@export var visual_aim_cone_fov: float = 80.0
 @export var magazine_capacity: int = 16
 @export var magazines_initial: int = 1
 @export var reload_duration: float = 2.2
@@ -71,12 +73,17 @@ var weapon: WeaponBase = null
 ## Combat bookkeeping.
 var _fire_cooldown: float = 0.0
 var _fire_input_prev: bool = false
+var _auto_fire_prev: bool = false
 var _burst_pending_shots: int = 0
+## Autonomous-combat diagnostics (opt-in, permanent debug facility).
+const AUTO_FIRE_DEBUG: bool = false
+var _dbg_had_lock: bool = false
+var _dbg_was_reloading: bool = false
 ## Autoaim: locked combat target + scan cadence (mirrors OperatorBase pattern).
 var _autoaim_target: Node3D = null
 var _autoaim_scan_timer: float = 0.0
 const AUTO_AIM_SCAN_INTERVAL: float = 0.12
-const EYE_HEIGHT: float = 0.6
+const EYE_HEIGHT: float = 0.1
 const TARGET_CENTER_HEIGHT: float = 1.0
 
 ## Current active mode
@@ -124,6 +131,7 @@ func _build_weapon() -> void:
 		"range": weapon_range,
 		"magazine_capacity": magazine_capacity,
 		"magazines_initial": magazines_initial,
+		"reserve_unlimited": true,
 		"reload_duration": reload_duration,
 		"fire_mode_type": FireMode.Type.FULL_AUTO,
 		"fire_rate": weapon_fire_rate,
@@ -144,8 +152,10 @@ func _physics_process(delta: float) -> void:
 	match current_mode:
 		DroneMode.ESCORT:
 			_process_escort_mode(delta)
+			_process_autonomous_combat(delta)
 		DroneMode.STATIONARY:
 			_process_stationary_mode()
+			_process_autonomous_combat(delta)
 		DroneMode.PILOT:
 			_process_pilot_mode(delta)
 			_process_drone_combat(delta)
@@ -157,9 +167,9 @@ func _setup_vision_cone() -> void:
 	if vision_cone == null:
 		vision_cone = VisionCone3D.new()
 		vision_cone.name = "VisionCone3D"
-		vision_cone.view_range = 14.0
-		vision_cone.field_of_view_degrees = 90.0
 		add_child(vision_cone)
+	vision_cone.view_range = 24.0
+	vision_cone.field_of_view_degrees = 90.0
 
 ## Builds the visible PILOT vision cone. A flat fan that mirrors the drone's own
 ## VisionCone3D range/field-of-view; because it is a child of the drone it
@@ -184,12 +194,12 @@ func _setup_pilot_vision_cone() -> void:
 	add_child(_pilot_cone)
 
 ## Procedural fan mesh in the drone's local XZ plane (forward = -Z). Reach is the
-## drone's WEAPON range (the actual combat envelope), field of view from its own
-## VisionCone3D, so the visible cone tells the player how far shots land while
-## detection keeps its own range in the registry.
+## drone's WEAPON range (the actual combat envelope), field of view from visual_aim_cone_fov,
+## so the visible cone tells the player where manual shots land while passive detection
+## operates with its own wider range and FOV in VisionCone3D.
 func _build_pilot_cone_mesh() -> ArrayMesh:
 	var vr: float = weapon.range if weapon != null else weapon_range
-	var fov: float = vision_cone.field_of_view_degrees if vision_cone != null else 90.0
+	var fov: float = visual_aim_cone_fov
 	var half: float = deg_to_rad(fov * 0.5)
 	var segs: int = 16
 	var st: SurfaceTool = SurfaceTool.new()
@@ -219,32 +229,39 @@ func _process_battery(delta: float) -> void:
 			# Auto-exit Pilot Mode if battery runs out
 			set_mode(DroneMode.ESCORT)
 
-## Checks range constraint relative to operator position
+## Checks range constraint relative to operator position (updates status flag without artificial mode disconnect)
 func _process_range_checks() -> void:
 	var dist: float = global_position.distance_to(operator.global_position)
-	var out_of_range: bool = dist > max_range_from_operator
+	is_drifting = dist > max_range_from_operator
 
-	if out_of_range and not is_drifting:
-		is_drifting = true
-		if current_mode == DroneMode.PILOT:
-			# Force disconnect Pilot Mode if drone drifts too far
-			set_mode(DroneMode.ESCORT)
-	elif not out_of_range and is_drifting:
-		is_drifting = false
-
-## Escort Mode movement: follows operator smoothly with obstacle avoidance stub
+## Escort Mode movement: flies smoothly toward operator escort target using velocity-based autopilot
 func _process_escort_mode(delta: float) -> void:
 	var op_transform: Transform3D = operator.global_transform
-	# Calculate target position behind the operator
 	var target_offset: Vector3 = op_transform.basis.z * follow_distance
 	var target_pos: Vector3 = op_transform.origin + target_offset + Vector3(0.0, follow_height_offset, 0.0)
 
-	# Simple obstacle avoidance interpolation
-	global_position = global_position.lerp(target_pos, follow_lerp_speed * delta)
-	
-	# Face operator rotation angle
-	rotation.y = lerp_angle(rotation.y, operator.rotation.y, follow_lerp_speed * delta)
-	velocity = Vector3.ZERO
+	var to_target: Vector3 = target_pos - global_position
+	var dist: float = to_target.length()
+
+	if dist < 0.05:
+		velocity = Vector3.ZERO
+		global_position = target_pos
+		rotation.y = lerp_angle(rotation.y, operator.rotation.y, follow_lerp_speed * delta)
+		return
+
+	var desired_dir: Vector3 = to_target / dist
+	var target_speed: float = minf(speed, dist * 2.5)
+	var target_velocity: Vector3 = desired_dir * target_speed
+
+	velocity.x = move_toward(velocity.x, target_velocity.x, acceleration * delta)
+	velocity.y = move_toward(velocity.y, target_velocity.y, acceleration * delta)
+	velocity.z = move_toward(velocity.z, target_velocity.z, acceleration * delta)
+
+	if dist > 0.5:
+		var target_angle: float = atan2(-desired_dir.x, -desired_dir.z)
+		rotation.y = lerp_angle(rotation.y, target_angle, follow_lerp_speed * delta)
+	else:
+		rotation.y = lerp_angle(rotation.y, operator.rotation.y, follow_lerp_speed * delta)
 
 ## Stationary Mode: locks position
 func _process_stationary_mode() -> void:
@@ -253,17 +270,30 @@ func _process_stationary_mode() -> void:
 ## Pilot Mode: direct locomotion mapping from input manager.
 ## LEFT stick drives movement; RIGHT stick (aim actions) drives the drone's
 ## facing/aim direction, fully isolated from the operator's own aim_yaw.
+## True when the operator is actively holding the manual aim input (RMB / right stick)
+func _is_aiming_input_active() -> bool:
+	if operator == null or operator._input_manager == null:
+		return false
+	if operator._is_using_mouse():
+		return operator._input_manager.is_action_pressed(operator.player_id, "aim_cone")
+	var aim_vec: Vector2 = operator._input_manager.get_aim_vector(operator.player_id)
+	return aim_vec.length_squared() > 0.01 or operator._input_manager.is_action_pressed(operator.player_id, "aim_cone") or operator._input_manager.is_action_pressed(operator.player_id, "autoaim")
+
+## Pilot Mode: direct locomotion mapping from input manager.
+## LEFT stick drives movement; RIGHT stick / RMB drives the drone's
+## manual facing/aim direction, fully isolated from the operator's own aim_yaw.
 func _process_pilot_mode(delta: float) -> void:
 	var move_vec: Vector2 = Vector2.ZERO
 	if operator._input_manager != null:
 		move_vec = operator._input_manager.get_movement_vector(operator.player_id)
 
-	var move_dir: Vector3 = Vector3(move_vec.x, 0.0, move_vec.y)
+	var move_len: float = move_vec.length()
 
-	if move_dir.length_squared() > 0.01:
-		move_dir = move_dir.normalized()
-		var target_vel_x: float = move_dir.x * speed
-		var target_vel_z: float = move_dir.z * speed
+	if move_len > 0.01:
+		var input_len: float = minf(move_len, 1.0)
+		var move_dir: Vector3 = Vector3(move_vec.x, 0.0, move_vec.y) / move_len
+		var target_vel_x: float = move_dir.x * speed * input_len
+		var target_vel_z: float = move_dir.z * speed * input_len
 		
 		velocity.x = move_toward(velocity.x, target_vel_x, acceleration * delta)
 		velocity.z = move_toward(velocity.z, target_vel_z, acceleration * delta)
@@ -271,16 +301,38 @@ func _process_pilot_mode(delta: float) -> void:
 		velocity.x = move_toward(velocity.x, 0.0, deceleration * delta)
 		velocity.z = move_toward(velocity.z, 0.0, deceleration * delta)
 	
-	# A deflected right stick rotates the drone (aim). Otherwise the drone
-	# faces its movement direction (legacy pilot behaviour).
-	var aim_vec: Vector2 = Vector2.ZERO
-	if operator._input_manager != null:
-		aim_vec = operator._input_manager.get_aim_vector(operator.player_id)
-	if aim_vec.length_squared() > 0.01:
-		var aim_angle: float = atan2(-aim_vec.x, -aim_vec.y)
-		rotation.y = lerp_angle(rotation.y, aim_angle, follow_lerp_speed * delta)
-	elif move_dir.length_squared() > 0.01:
-		var target_angle: float = atan2(-move_dir.x, -move_dir.z)
+	# Manual aim input check (RMB / Right stick): visual cone is visible ONLY while actively aiming.
+	var is_aiming: bool = _is_aiming_input_active()
+	if _pilot_cone != null:
+		_pilot_cone.visible = is_aiming
+
+	if is_aiming:
+		if operator._is_using_mouse():
+			var cam: Camera3D = operator._mouse_camera_override
+			if cam == null and get_viewport() != null:
+				cam = get_viewport().get_camera_3d()
+			if cam != null:
+				var cursor: Vector2 = operator._mouse_cursor_override
+				if cursor.is_equal_approx(Vector2.INF):
+					var vp: Viewport = get_viewport()
+					if vp != null:
+						cursor = vp.get_mouse_position()
+				var world: Vector3 = OperatorBase._project_cursor_to_floor(cam, cursor, global_position.y)
+				if world.is_finite():
+					var to_cursor: Vector3 = world - global_position
+					to_cursor.y = 0.0
+					if to_cursor.length_squared() > 0.0001:
+						var target_yaw: float = atan2(-to_cursor.x, -to_cursor.z)
+						rotation.y = lerp_angle(rotation.y, target_yaw, follow_lerp_speed * delta)
+		else:
+			var aim_vec: Vector2 = operator._input_manager.get_aim_vector(operator.player_id)
+			if aim_vec.length_squared() > 0.01:
+				var aim_angle: float = atan2(-aim_vec.x, -aim_vec.y)
+				rotation.y = lerp_angle(rotation.y, aim_angle, follow_lerp_speed * delta)
+	elif move_len > 0.01:
+		# When not aiming, face movement direction
+		var move_dir_norm: Vector3 = Vector3(move_vec.x, 0.0, move_vec.y) / move_len
+		var target_angle: float = atan2(-move_dir_norm.x, -move_dir_norm.z)
 		rotation.y = lerp_angle(rotation.y, target_angle, follow_lerp_speed * delta)
 	
 	# Stabilize Y height relative to terrain in pilot mode
@@ -305,20 +357,22 @@ func set_mode(new_mode: DroneMode) -> void:
 		# entering Pilot does not instantly queue an extra round.
 		_fire_cooldown = 0.0
 		_fire_input_prev = false
+		# Manual control takes over: drop any autonomous lock and trigger state.
+		_release_combat_target()
+		_auto_fire_prev = false
 	else:
 		_release_combat_target()
 
 	if _pilot_cone != null:
-		_pilot_cone.visible = current_mode == DroneMode.PILOT
+		_pilot_cone.visible = false
 
 	_update_visuals()
 	mode_changed.emit(current_mode)
 
 ## ──────────────────────────────────────────────
 ## DRONE COMBAT (PILOT fire), reusing the existing
-## WeaponBase / FireMode / LineOfSightQuery / GameRules modules. No parallel
-## weapon, projectile or autoaim system is created: this mirrors the operator's
-## pilot of the same modules against the drone's own weaker weapon profile.
+## WeaponBase / FireMode / LineOfSightQuery / GameRules modules. Manual hitscan
+## aim along the drone's facing — NO autoaim or target lock.
 ## ──────────────────────────────────────────────
 
 ## True while the drone hovers inside its operator's own team protected spawn
@@ -339,9 +393,9 @@ func _in_spawn_zone() -> bool:
 			return true
 	return false
 
-## PILOT fire loop: reads the fire action off the operator's InputManager,
-## keeps a soft autoaim lock and resolves hitscan shots along the drone's
-## facing. Runs only while the drone is being piloted.
+## PILOT fire loop: reads the fire action off the operator's InputManager
+## and resolves manual hitscan shots along the drone's facing. Runs only while
+## the drone is being piloted.
 func _process_drone_combat(delta: float) -> void:
 	if weapon == null:
 		return
@@ -349,7 +403,7 @@ func _process_drone_combat(delta: float) -> void:
 		_fire_cooldown -= delta
 
 	var fire_pressed: bool = false
-	if operator._input_manager != null:
+	if operator != null and operator._input_manager != null:
 		fire_pressed = operator._input_manager.is_action_pressed(operator.player_id, "fire")
 	else:
 		fire_pressed = false
@@ -358,23 +412,6 @@ func _process_drone_combat(delta: float) -> void:
 	# is inside a protected room (its own spawn-room occupancy, not the
 	# operator's — the drone is the firing combat unit).
 	var spawn_blocked: bool = _in_spawn_zone()
-
-	if fire_pressed and not spawn_blocked:
-		_autoaim_scan_timer -= delta
-		if _autoaim_target == null or _autoaim_scan_timer <= 0.0:
-			_autoaim_scan_timer = AUTO_AIM_SCAN_INTERVAL
-			_acquire_combat_target()
-		if _autoaim_target != null and is_instance_valid(_autoaim_target):
-			# Autoaim takes control of the drone's facing, exactly like the
-			# operator's canonical aim channel.
-			var to_target: Vector3 = _autoaim_target.global_position - global_position
-			to_target.y = 0.0
-			if to_target.length_squared() > 0.0001:
-				var target_yaw: float = atan2(-to_target.x, -to_target.z)
-				rotation.y = lerp_angle(rotation.y, target_yaw, follow_lerp_speed * delta)
-	else:
-		_release_combat_target()
-		_autoaim_target = null
 
 	var fire_trigger: bool = false
 	var effective_pressed: bool = fire_pressed and not spawn_blocked
@@ -386,24 +423,99 @@ func _process_drone_combat(delta: float) -> void:
 		if weapon.try_consume_round():
 			_execute_drone_shot()
 
-## Resolves one hitscan shot along the drone's facing with cover mitigation.
-## Reuses the same LineOfSightQuery + GameRules pipeline as the operator.
-func _execute_drone_shot() -> void:
+## ──────────────────────────────────────────────
+## AUTONOMOUS COMPANION COMBAT (Escort / Stationary)
+## Keeps the EXISTING combat-target infrastructure warm every frame: acquires
+## the best enemy inside weapon range with clear LoS, aims the hull at the lock,
+## and fires through the SAME WeaponBase / FireMode / LineOfSightQuery pipeline
+## as pilot mode whenever the weapon is ready. The loop survives magazine
+## exhaustion: try_consume_round() auto-starts the reload, weapon.tick()
+## (called every frame in _physics_process) advances it, and firing resumes
+## automatically against a still-valid target. No manual input involved.
+## ──────────────────────────────────────────────
+func _process_autonomous_combat(delta: float) -> void:
+	if weapon == null or operator == null:
+		return
+	if _fire_cooldown > 0.0:
+		_fire_cooldown -= delta
+
+	# Refresh the lock on the shared cadence; _acquire_combat_target keeps a
+	# still-valid lock or re-picks (range / LoS / team / alive rules included).
+	_autoaim_scan_timer -= delta
+	if _autoaim_scan_timer <= 0.0:
+		_autoaim_scan_timer = AUTO_AIM_SCAN_INTERVAL
+		_acquire_combat_target()
+
+	var has_lock: bool = _autoaim_target != null and is_instance_valid(_autoaim_target)
+
+	if AUTO_FIRE_DEBUG and has_lock != _dbg_had_lock:
+		print("[DroneDebug] %s lock -> %s" % [name, str(_autoaim_target)])
+		_dbg_had_lock = has_lock
+
+	if has_lock:
+		# Aim: rotate the hull toward the locked enemy so shots leave the nose.
+		var to_target: Vector3 = _autoaim_target.global_position - global_position
+		to_target.y = 0.0
+		if to_target.length_squared() > 0.0001:
+			var yaw: float = atan2(-to_target.x, -to_target.z)
+			rotation.y = lerp_angle(rotation.y, yaw, follow_lerp_speed * delta)
+
+	# Spawn protection mirrors pilot mode: the drone itself must be outside.
+	var spawn_blocked: bool = _in_spawn_zone()
+	var want_fire: bool = has_lock and not spawn_blocked
+	var trigger: bool = false
+	if weapon.fire_mode != null:
+		trigger = weapon.fire_mode.evaluate_trigger(want_fire, _auto_fire_prev)
+	_auto_fire_prev = want_fire
+
+	if trigger and _fire_cooldown <= 0.0 and not spawn_blocked:
+		if weapon.try_consume_round():
+			_execute_drone_shot(_autoaim_target)
+
+	if AUTO_FIRE_DEBUG:
+		var reloading_now: bool = weapon.is_reloading()
+		if reloading_now != _dbg_was_reloading:
+			if reloading_now:
+				print("[DroneDebug] %s RELOAD START mag=%d/%d reserve=%d%s" % [
+					name, weapon.magazine.current_rounds, weapon.magazine.capacity,
+					weapon.reserve.magazines_remaining,
+					" (unlimited)" if weapon.reserve.unlimited_magazines else ""])
+			else:
+				print("[DroneDebug] %s RELOAD DONE mag=%d/%d — resuming fire checks" % [
+					name, weapon.magazine.current_rounds, weapon.magazine.capacity])
+			_dbg_was_reloading = reloading_now
+
+## Resolves one hitscan shot with cover mitigation. When `target` is provided
+## (autonomous combat) the ray is resolved against the target's stance-aware
+## origin — operators report their own eye height via get_vision_origin(), so a
+## crouching enemy is aimed at correctly; drones are aimed at their body.
+## Without a target the legacy behaviour stands: manual hitscan along the
+## drone's facing, pitched down to battlefield height. Both paths reuse the same
+## LineOfSightQuery + GameRules pipeline as the operator.
+func _execute_drone_shot(target: Node3D = null) -> void:
 	_fire_cooldown = weapon.fire_mode.fire_rate if weapon.fire_mode != null else weapon_fire_rate
 
-	var forward_dir: Vector3 = Vector3(-sin(rotation.y), 0.0, -cos(rotation.y)).normalized()
-	var eye_pos: Vector3 = global_position + Vector3(0.0, EYE_HEIGHT, 0.0)
-	var target_end_pos: Vector3 = eye_pos + (forward_dir * weapon.range)
+	var muzzle_pos: Vector3 = global_position
+	var range_dist: float = weapon.range if weapon != null else weapon_range
+	var target_end_pos: Vector3
+	if target != null and is_instance_valid(target):
+		if target is OperatorBase and (target as OperatorBase).has_method("get_vision_origin"):
+			target_end_pos = (target as OperatorBase).get_vision_origin()
+		else:
+			target_end_pos = target.global_position
+	else:
+		var horiz_dir: Vector3 = Vector3(-sin(rotation.y), 0.0, -cos(rotation.y)).normalized()
+		# Pitch the 3D ray trajectory from the airborne drone (y=2.4m) toward battlefield target height (y=0.9m)
+		# so shots intersect cover/walls and land visibly on ground targets.
+		target_end_pos = global_position + (horiz_dir * range_dist)
+		target_end_pos.y = 0.9
+	var shot_dir: Vector3 = (target_end_pos - muzzle_pos).normalized()
 
-	# Locked target: aim at the body so the shot connects at fire height.
-	if _autoaim_target != null and is_instance_valid(_autoaim_target):
-		target_end_pos = _autoaim_target.global_position
-
-	weapon_fired.emit(eye_pos, forward_dir)
+	weapon_fired.emit(muzzle_pos, shot_dir)
 
 	var los_res: LineOfSightQuery.LoSResult = LineOfSightQuery.test_los(
 		self,
-		eye_pos,
+		muzzle_pos,
 		target_end_pos,
 		[get_rid()],
 		combat_collision_mask
@@ -414,9 +526,9 @@ func _execute_drone_shot() -> void:
 		if hit_target is OperatorBase and hit_target != operator:
 			var target_op: OperatorBase = hit_target as OperatorBase
 			if not target_op.is_incapacitated:
-				_apply_combat_damage(target_op, eye_pos)
+				_apply_combat_damage(target_op, muzzle_pos)
 		elif hit_target is DroneBase and hit_target != self:
-			_apply_combat_damage(hit_target as DroneBase, eye_pos)
+			_apply_combat_damage(hit_target as DroneBase, muzzle_pos)
 
 ## Applies cover-mitigated damage from the drone's weapon profile. Mirrors the
 ## operator's shared damage pipeline (friendly-fire gate, cover sampling, signal
@@ -463,7 +575,11 @@ func _apply_combat_damage(target: Node3D, attacker_eye_pos: Vector3) -> void:
 
 	if final_damage > 0.0:
 		if is_operator:
-			(target as OperatorBase).take_damage(final_damage)
+			var shot_dir: Vector3 = (target.global_position - attacker_eye_pos)
+			shot_dir.y = 0.0
+			if shot_dir.length_squared() > 0.001:
+				shot_dir = shot_dir.normalized()
+			(target as OperatorBase).take_damage(final_damage, shot_dir)
 			damage_dealt.emit(target as OperatorBase, final_damage, is_mitigated)
 		else:
 			(target as DroneBase).take_damage(final_damage)

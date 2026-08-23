@@ -63,7 +63,7 @@ class TacticalVisionCone extends MeshInstance3D:
 		# Raycasts use world space; mesh vertices must be LOCAL to this MeshInstance3D
 		# (child of the operator) so Godot's transform chain does not double-apply
 		# the operator's global_position.
-		var world_origin: Vector3 = op.global_position + Vector3(0.0, 1.2, 0.0)
+		var world_origin: Vector3 = op.get_vision_origin() if op.has_method("get_vision_origin") else op.global_position + Vector3(0.0, 1.35, 0.0)
 		var local_origin: Vector3 = to_local(world_origin)
 		# Floor-plane base: drop every vertex onto the operator's foot plane so the
 		# cone lies flat on the ground.
@@ -167,13 +167,14 @@ enum OperatorState {
 
 @export_category("Health & Survival")
 @export_group("Vital Stats")
-@export var health_max: float = 100.0
+@export var health_max: float = 250.0
 @export var separation_warning_distance: float = 12.0
+@export var damage_knockback_impulse: float = 3.0
 
 @export_category("Combat & Firing")
 @export_group("Weapon Parameters")
 @export var base_damage: float = 18.0
-@export var fire_rate: float = 0.5
+@export var fire_rate: float = 0.9
 @export var weapon_range: float = 20.0
 @export_flags_3d_physics var combat_collision_mask: int = 3
 
@@ -406,6 +407,7 @@ var _mouse_cursor_override: Vector2 = Vector2.INF
 
 ## Child Components
 @onready var _mesh_instance: MeshInstance3D = $MeshInstance3D if has_node("MeshInstance3D") else null
+@onready var _collision_shape: CollisionShape3D = $CollisionShape3D if has_node("CollisionShape3D") else null
 @onready var vision_cone: VisionCone3D = $VisionCone3D if has_node("VisionCone3D") else null
 var _overhead_label: Label3D = null
 ## Light-gray fill panel drawn behind the overhead text (readable over terrain).
@@ -464,7 +466,7 @@ func _build_weapon() -> void:
 		"magazine_capacity": magazine_capacity,
 		"magazines_initial": magazines_initial,
 		"reload_duration": reload_duration,
-		"fire_mode_type": FireMode.Type.FULL_AUTO,
+		"fire_mode_type": FireMode.Type.SEMI_AUTO,
 		"burst_size": weapon_burst_size
 	})
 	weapon.reset()
@@ -602,7 +604,7 @@ func _setup_vision_cone() -> void:
 	if vision_cone == null:
 		vision_cone = VisionCone3D.new()
 		vision_cone.name = "VisionCone3D"
-		vision_cone.position = Vector3(0.0, 1.2, 0.0)
+		vision_cone.position = Vector3(0.0, VISION_ORIGIN_STANDING_Y, 0.0)
 		vision_cone.view_range = 32.0
 		vision_cone.field_of_view_degrees = 90.0
 		add_child(vision_cone)
@@ -815,6 +817,24 @@ func _evaluate_fire_trigger(pressed: bool) -> bool:
 		return weapon.fire_mode.evaluate_trigger(pressed, _fire_input_prev)
 	return pressed
 
+## Shot origin height above ground (meters) for standing vs crouching stances
+const SHOT_ORIGIN_STANDING_Y: float = 1.35
+const SHOT_ORIGIN_CROUCHING_Y: float = 0.65
+
+## Returns the 3D shot/eye origin in world space, dynamically accounting for crouch stance.
+func get_shot_origin() -> Vector3:
+	var eye_h: float = SHOT_ORIGIN_CROUCHING_Y if is_crouching else SHOT_ORIGIN_STANDING_Y
+	return global_position + Vector3(0.0, eye_h, 0.0)
+
+## Vision origin height above ground (meters) for standing vs crouching stances
+const VISION_ORIGIN_STANDING_Y: float = 1.35
+const VISION_ORIGIN_CROUCHING_Y: float = 0.65
+
+## Returns the 3D vision/eye origin in world space, dynamically accounting for crouch stance.
+func get_vision_origin() -> Vector3:
+	var eye_h: float = VISION_ORIGIN_CROUCHING_Y if is_crouching else VISION_ORIGIN_STANDING_Y
+	return global_position + Vector3(0.0, eye_h, 0.0)
+
 ## Executes a hitscan shot with cover damage mitigation and LoS evaluation.
 ## The round is consumed by the weapon before this is called; this method only
 ## resolves the shot along the canonical aim direction.
@@ -830,13 +850,19 @@ func _execute_tactical_shot() -> void:
 
 	# Fires along the canonical aim direction (independent of movement input).
 	var forward_dir: Vector3 = aim_direction.normalized()
-	var eye_pos: Vector3 = global_position + Vector3(0.0, 1.2, 0.0)
+	var eye_pos: Vector3 = get_shot_origin()
 	var target_end_pos: Vector3 = eye_pos + (forward_dir * _get_combat_range())
+	target_end_pos.y = 0.9
 
-	# Autoaim aims at a locked drone's body so the shot connects with its
-	# flight height instead of the flat eye line.
-	if _aim_source == AimSource.AUTO_AIM and _autoaim_target is DroneBase:
-		target_end_pos = _autoaim_target.global_position
+	# Autoaim aims at a locked target's 3D body position (drone flight height
+	# or operator stance height) so the shot connects with its actual elevation.
+	if (_aim_source == AimSource.AUTO_AIM or is_ai_controlled) and _autoaim_target != null and is_instance_valid(_autoaim_target):
+		if _autoaim_target is DroneBase:
+			target_end_pos = _autoaim_target.global_position
+		elif _autoaim_target is OperatorBase:
+			var op_target: OperatorBase = _autoaim_target as OperatorBase
+			var th: float = op_target.get_vision_origin().y - op_target.global_position.y if op_target.has_method("get_vision_origin") else 1.2
+			target_end_pos = op_target.global_position + Vector3(0.0, th, 0.0)
 
 	weapon_fired.emit(eye_pos, forward_dir)
 
@@ -886,7 +912,9 @@ func _apply_mitigated_damage(target: Node3D, attacker_eye_pos: Vector3) -> void:
 	var target_chest: Vector3
 	var target_feet: Vector3
 	if is_operator:
-		target_chest = target.global_position + Vector3(0.0, 1.2, 0.0)
+		var op_target: OperatorBase = target as OperatorBase
+		var chest_h: float = op_target.get_vision_origin().y - op_target.global_position.y if op_target.has_method("get_vision_origin") else 1.2
+		target_chest = target.global_position + Vector3(0.0, chest_h, 0.0)
 		target_feet = target.global_position + Vector3(0.0, 0.1, 0.0)
 	else:
 		target_chest = target.global_position
@@ -905,7 +933,11 @@ func _apply_mitigated_damage(target: Node3D, attacker_eye_pos: Vector3) -> void:
 
 	if final_damage > 0.0:
 		if is_operator:
-			(target as OperatorBase).take_damage(final_damage)
+			var shot_dir: Vector3 = (target.global_position - attacker_eye_pos)
+			shot_dir.y = 0.0
+			if shot_dir.length_squared() > 0.001:
+				shot_dir = shot_dir.normalized()
+			(target as OperatorBase).take_damage(final_damage, shot_dir)
 			damage_dealt.emit(target as OperatorBase, final_damage, is_mitigated)
 		else:
 			(target as DroneBase).take_damage(final_damage)
@@ -1125,6 +1157,15 @@ func trigger_focus(duration: float = -1.0) -> void:
 
 func _update_autoaim() -> void:
 	if is_ai_controlled:
+		# AI-controlled operators maintain their own lock through the SAME
+		# shared-pipeline acquisition (_is_valid_autoaim_target re-checks team,
+		# range vs _get_combat_range() and LoS on every scan), so hitscan shots
+		# resolve onto the locked target's stance-aware origin via
+		# _execute_tactical_shot(). No cone gating: AI has no aim device.
+		_autoaim_scan_timer -= get_physics_process_delta_time()
+		if _autoaim_target == null or _autoaim_scan_timer <= 0.0:
+			_autoaim_scan_timer = AUTO_AIM_SCAN_INTERVAL
+			_acquire_autoaim_target()
 		return
 	var autoaim_held: bool = false
 	if _input_manager != null:
@@ -1335,12 +1376,15 @@ func _release_autoaim_target() -> void:
 
 ## Called when the locked drone is destroyed.
 func _on_autoaim_target_destroyed() -> void:
-	if _aim_source == AimSource.AUTO_AIM:
+	# AI-controlled operators keep _aim_source forced to AI by _update_aim(), so
+	# the lock must drop on the signal regardless of the aim source — otherwise
+	# a dead target stays locked for up to one scan interval.
+	if _aim_source == AimSource.AUTO_AIM or is_ai_controlled:
 		_autoaim_target = null
 
 ## Called when the locked operator is downed/killed.
 func _on_autoaim_target_down(_p_id: int) -> void:
-	if _aim_source == AimSource.AUTO_AIM:
+	if _aim_source == AimSource.AUTO_AIM or is_ai_controlled:
 		_autoaim_target = null
 
 ## Returns whether the given target is still a valid autoaim candidate.
@@ -1389,7 +1433,7 @@ func _target_within_vision_cone(target: Node3D) -> bool:
 
 ## LoS check for autoaim acquisition (clear line to the target's chest).
 func _has_clear_los(target: Node3D) -> bool:
-	var eye_pos: Vector3 = global_position + Vector3(0.0, 1.2, 0.0)
+	var eye_pos: Vector3 = get_shot_origin()
 	var target_pos: Vector3 = target.global_position + Vector3(0.0, 1.0, 0.0)
 	var los: LineOfSightQuery.LoSResult = LineOfSightQuery.test_los(
 		self, eye_pos, target_pos, [get_rid()], combat_collision_mask
@@ -1460,14 +1504,22 @@ func _update_sprint_crouch() -> void:
 
 ## Adjusts mesh scale and offset when crouching
 func _update_crouch_visual() -> void:
-	if _mesh_instance == null:
-		return
-	if is_crouching:
-		_mesh_instance.scale    = Vector3(1.0, 0.55, 1.0)
-		_mesh_instance.position = Vector3(0.0, 0.5, 0.0)
-	else:
-		_mesh_instance.scale    = Vector3(1.0, 1.0, 1.0)
-		_mesh_instance.position = Vector3(0.0, 0.9, 0.0)
+	if _mesh_instance != null:
+		if is_crouching:
+			_mesh_instance.scale    = Vector3(1.0, 0.55, 1.0)
+			_mesh_instance.position = Vector3(0.0, 0.5, 0.0)
+		else:
+			_mesh_instance.scale    = Vector3(1.0, 1.0, 1.0)
+			_mesh_instance.position = Vector3(0.0, 0.9, 0.0)
+	if _collision_shape != null:
+		if is_crouching:
+			_collision_shape.scale    = Vector3(1.0, 0.55, 1.0)
+			_collision_shape.position = Vector3(0.0, 0.5, 0.0)
+		else:
+			_collision_shape.scale    = Vector3(1.0, 1.0, 1.0)
+			_collision_shape.position = Vector3(0.0, 0.9, 0.0)
+	if vision_cone != null:
+		vision_cone.position = Vector3(0.0, VISION_ORIGIN_CROUCHING_Y if is_crouching else VISION_ORIGIN_STANDING_Y, 0.0)
 ## Assigns InputManager reference
 func set_input_manager(input_mgr: InputManager) -> void:
 	_input_manager = input_mgr
@@ -1509,8 +1561,8 @@ func _process_dash(delta: float) -> void:
 func _get_dash_speed() -> float:
 	return dash_distance / maxf(dash_duration, 0.001)
 
-## Applies damage to operator and triggers signals / incapacitation
-func take_damage(amount: float) -> void:
+## Applies damage to operator and triggers signals / incapacitation / visual particles / knockback impulse
+func take_damage(amount: float, shot_direction: Vector3 = Vector3.ZERO) -> void:
 	if is_incapacitated or is_dead or is_invulnerable or is_in_spawn_zone():
 		return
 	
@@ -1518,8 +1570,53 @@ func take_damage(amount: float) -> void:
 	health_current = maxf(0.0, health_current - mitigated_amt)
 	health_changed.emit(health_current, health_max)
 	
+	if mitigated_amt > 0.0:
+		_spawn_damage_particles()
+		if shot_direction != Vector3.ZERO:
+			var knockback_dir: Vector3 = Vector3(shot_direction.x, 0.0, shot_direction.z)
+			if knockback_dir.length_squared() > 0.001:
+				knockback_dir = knockback_dir.normalized()
+				velocity.x += knockback_dir.x * damage_knockback_impulse
+				velocity.z += knockback_dir.z * damage_knockback_impulse
+
 	if health_current <= 0.0:
 		die()
+
+## Spawns visual armor fragment particles breaking loose on hit (mechanical/armor pieces, NOT blood)
+func _spawn_damage_particles(hit_pos: Vector3 = Vector3.ZERO) -> void:
+	var spawn_at: Vector3 = hit_pos
+	if spawn_at == Vector3.ZERO:
+		spawn_at = get_vision_origin()
+
+	var particles: CPUParticles3D = CPUParticles3D.new()
+	particles.emitting = false
+	particles.one_shot = true
+	particles.explosiveness = 0.9
+	particles.amount = 10
+	particles.lifetime = 0.6
+	particles.direction = Vector3(0.0, 1.0, 0.0)
+	particles.spread = 75.0
+	particles.initial_velocity_min = 1.5
+	particles.initial_velocity_max = 3.0
+	particles.gravity = Vector3(0.0, -9.8, 0.0)
+	particles.scale_amount_min = 0.6
+	particles.scale_amount_max = 1.2
+
+	var mesh: BoxMesh = BoxMesh.new()
+	mesh.size = Vector3(0.06, 0.06, 0.06)
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_color = Color(0.45, 0.45, 0.5)
+	mat.metallic = 0.8
+	mat.roughness = 0.3
+	mesh.material = mat
+	particles.mesh = mesh
+
+	var parent: Node = get_parent()
+	if parent != null:
+		parent.add_child(particles)
+		particles.global_position = spawn_at
+		particles.emitting = true
+		get_tree().create_timer(1.0).timeout.connect(particles.queue_free)
 
 ## Triggers death state and starts respawn timer
 func die() -> void:
@@ -1596,6 +1693,12 @@ func respawn(spawn_pos: Vector3 = Vector3.ZERO) -> void:
 	var ivt: float = rules.invulnerability_time if rules != null else DEFAULT_INVULNERABILITY_TIME
 	is_invulnerable = true
 	invulnerability_timer = ivt
+
+	# Respawn a new drone if the previous one was destroyed. The old wreck
+	# remains in the world for salvage — spawn_drone() only acts when
+	# has_drone_active is false, so this is a no-op when the drone is alive.
+	if not has_drone_active:
+		spawn_drone()
 
 	_update_overhead_badge()
 

@@ -73,23 +73,34 @@ func _evaluate_candidate(target: Node3D, exclude_rids: Array[RID]) -> bool:
 		return false
 
 	var origin: Vector3 = global_position
-	var target_pos: Vector3 = target.global_position + Vector3(0.0, 0.9, 0.0) # Aim at chest height
+	var target_h: float = 0.9
+	if target is OperatorBase:
+		var target_op: OperatorBase = target as OperatorBase
+		target_h = target_op.get_vision_origin().y - target_op.global_position.y
+	elif target is DroneBase:
+		target_h = 0.0
+	var target_pos: Vector3 = target.global_position + Vector3(0.0, target_h, 0.0)
 	
 	var to_target: Vector3 = target_pos - origin
 	var dist: float = to_target.length()
 
-	# 1. Distance check
-	if dist > view_range or dist < 0.1:
+	# 1. Distance check (3D distance up to view_range)
+	if dist > view_range:
 		return false
 
-	# 2. Angle check relative to forward direction (-Z axis in local space)
-	var forward: Vector3 = -global_transform.basis.z.normalized()
-	var dir_to_target: Vector3 = to_target.normalized()
-	var angle_rad: float = forward.angle_to(dir_to_target)
-	var half_fov_rad: float = deg_to_rad(field_of_view_degrees * 0.5)
+	# 2. Angle check relative to forward direction on the horizontal tactical plane (XZ)
+	# This ensures airborne units (like drones at Y=2.4m) don't lose sight of ground targets
+	# due to vertical pitch offset when approaching close to them.
+	var forward: Vector3 = -global_transform.basis.z
+	var forward_flat: Vector3 = Vector3(forward.x, 0.0, forward.z)
+	var to_target_flat: Vector3 = Vector3(to_target.x, 0.0, to_target.z)
+	if to_target_flat.length_squared() > 0.0001 and forward_flat.length_squared() > 0.0001:
+		var dir_flat: Vector3 = to_target_flat.normalized()
+		var angle_rad: float = forward_flat.normalized().angle_to(dir_flat)
+		var half_fov_rad: float = deg_to_rad(field_of_view_degrees * 0.5)
 
-	if angle_rad > half_fov_rad:
-		return false
+		if angle_rad > half_fov_rad:
+			return false
 
 	# 3. Line of Sight raycast check
 	var los_res: LineOfSightQuery.LoSResult = LineOfSightQuery.test_los(
@@ -100,7 +111,15 @@ func _evaluate_candidate(target: Node3D, exclude_rids: Array[RID]) -> bool:
 		obstacle_collision_mask
 	)
 
-	return los_res.is_visible
+	# Accept as visible if LoS reports clear, OR if the first thing the ray hit
+	# was the target entity itself (e.g. elevated drone hitting the top of an
+	# operator capsule — the hit point may be far from the ideal chest anchor
+	# but the target is still physically reachable with no obstruction).
+	if los_res.is_visible:
+		return true
+	if los_res.hit_collider == target:
+		return true
+	return false
 
 ## Updates detection list and fires signals on state changes
 func _update_detection_states(current_scan_hits: Array[Node3D]) -> void:

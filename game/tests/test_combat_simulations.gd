@@ -65,15 +65,15 @@ func run_test() -> void:
 	await _await_frames(8)
 
 	print("--- Survivability baseline (Phase 2) ---")
-	_check(p2.health_max == 150.0, "Vanguard P2 HP base 150 (%.0f)" % p2.health_max)
+	_check(p2.health_max == 375.0, "Vanguard P2 HP base 375 (%.0f)" % p2.health_max)
 	_check(absf(p2.damage_mitigation - 0.20) < 0.001,
 		"Vanguard P2 mitigation 0.20 (%.2f)" % p2.damage_mitigation)
-	_check(p1.health_max == 100.0 and p3.health_max == 100.0 and p4.health_max == 100.0,
-		"Recon/Disruptor/Engineer HP base 100")
+	_check(p1.health_max == 250.0 and p3.health_max == 250.0 and p4.health_max == 250.0,
+		"Recon/Disruptor/Engineer HP base 250")
 	_check(p1.weapon != null and p1.weapon.weapon_name == "GRAVITY-1", "P1 carries GRAVITY-1")
 	_check(p1.weapon.base_damage == 18.0 and p1.weapon.range == 20.0,
 		"GRAVITY-1 base 18 dmg / 20 m (%.0f/%.0f)" % [p1.weapon.base_damage, p1.weapon.range])
-	_check(p1.weapon.fire_mode.fire_rate == 0.5, "GRAVITY-1 fire rate 0.5 s (120 RPM)")
+	_check(p1.weapon.fire_mode.fire_rate == 0.9, "GRAVITY-1 deliberate fire rate 0.9 s (%.1f s)" % p1.weapon.fire_mode.fire_rate)
 	_check(p1.weapon.magazine.capacity == 30 and p1.weapon.reserve.max_magazines == 3,
 		"GRAVITY-1 mag 30 / reserve 3 (120 rounds total)")
 
@@ -120,8 +120,8 @@ func run_test() -> void:
 	root.add_child(d1)
 	await _await_frames(4)
 	_check(d1.weapon != null and d1.weapon.weapon_name == "GRAVITY-D", "drone uses GRAVITY-D")
-	_check(d1.weapon.base_damage == 8.0 and d1.weapon.range == 13.0,
-		"GRAVITY-D base 8 dmg / 13 m (%.1f/%.1f)" % [d1.weapon.base_damage, d1.weapon.range])
+	_check(d1.weapon.base_damage == 8.0 and d1.weapon.range == 12.0,
+		"GRAVITY-D base 8 dmg / 12 m (%.1f/%.1f)" % [d1.weapon.base_damage, d1.weapon.range])
 	_check(d1.weapon.fire_mode.fire_rate == 0.6, "GRAVITY-D fire rate 0.6 s (100 RPM)")
 	_check(d1.weapon.magazine.capacity == 16 and d1.weapon.reserve.max_magazines == 1,
 		"GRAVITY-D mag 16 / reserve 1 (32 rounds total)")
@@ -137,13 +137,12 @@ func run_test() -> void:
 	d2.position = Vector3(0.0, 1.2, 0.0)
 	root.add_child(d2)
 	await _await_frames(4)
-	_check(d2.health_max == 50.0, "drone HP base 50 (%.0f)" % d2.health_max)
+	_check(d2.health_max == 500.0, "drone HP base 500 (%.0f)" % d2.health_max)
 	hp_before = d2.health_current
 	p1._apply_mitigated_damage(d2, eye)
 	_check(d2.health_current == hp_before - 18.0,
-		"operator hitscan damages drone: 50 -> 32 HP (%.1f)" % d2.health_current)
-	d2.take_damage(18.0)
-	d2.take_damage(14.0)
+		"operator hitscan damages drone: 500 -> 482 HP (%.1f)" % d2.health_current)
+	d2.take_damage(482.0)
 	_check(d2.health_current == 0.0 and d2.is_queued_for_deletion(),
 		"drone destroyed at 0 HP (take_damage -> _destroy)")
 
@@ -164,7 +163,12 @@ func run_test() -> void:
 	hp_before = p3.health_current
 	var enemy_drone_live: DroneBase = preload("res://scenes/drone.tscn").instantiate() as DroneBase
 	enemy_drone_live.operator = p1
-	enemy_drone_live.position = Vector3(5.0, 0.6, 2.5)
+	# Parked beyond the GRAVITY-D engagement envelope (>12 m): with autonomous
+	# companion combat active, a live enemy drone inside weapon range acquires
+	# and shoots P3 during the await window below, which would contaminate the
+	# zero-damage assertions. This encounter pins ABILITY damage-freeness, not
+	# EMP radius interaction.
+	enemy_drone_live.position = p3.global_position + Vector3(14.0, 0.6, 2.5)
 	root.add_child(enemy_drone_live)
 	await _await_frames(4)
 	if p3_disruptor != null:

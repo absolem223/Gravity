@@ -24,15 +24,35 @@ const CAPTURE_APPROACH_RADIUS: float = 3.0
 ## Margin over the weapon range used when deciding to open fire (the hitscan
 ## shot resolves inside _get_combat_range(), so we hold fire until inside it).
 const COMBAT_RANGE_MARGIN: float = 0.0
+## The GRAVITY-1 is SEMI_AUTO: evaluate_trigger() needs a fresh press edge per
+## round, so the brain PULSES ai_fire_input (short synthetic press) once per
+## weapon fire-rate window instead of holding it high. Holding would produce a
+## single edge at engagement start and never fire again.
+const FIRE_PULSE_PHYSICS_FRAMES: int = 2
+## Gated diagnostic facility (opt-in): traces detection/engagement/trigger flow.
+const AI_FIRE_DEBUG: bool = false
 
 var _match: Match = null
 var _player_manager: PlayerManager = null
 var _terminal_manager: TerminalManager = null
 var _arena: Arena = null
 
+## Per-operator semi-auto cadence state: instance_id -> {"timer": float, "pulse": int}.
+## timer counts down the current weapon fire-rate window; pulse > 0 holds the
+## synthetic trigger press for that many remaining physics frames.
+var _fire_cycle: Dictionary = {}
+
 ## Eye height used for LoS combat checks.
 const EYE_HEIGHT: float = 1.2
 const TARGET_CENTER_HEIGHT: float = 1.0
+
+## Stuck detection and lateral recovery constants
+const STUCK_CHECK_WINDOW: float = 0.5
+const STUCK_MIN_DISPLACEMENT: float = 0.2
+const STUCK_RECOVERY_DURATION: float = 0.8
+
+## Per-operator stuck tracking state: op_id -> Dictionary
+var _stuck_state: Dictionary = {}
 
 func _ready() -> void:
 	set_physics_process(true)
@@ -46,7 +66,7 @@ func setup(match: Match) -> void:
 	_terminal_manager = match.get_terminal_manager()
 	_arena = match.get_arena()
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	# Only drive while the match is live: during INTRO every operator is
 	# temporarily marked AI to freeze control, and we must not move them then.
 	if _match == null or not _match.is_live():
@@ -57,30 +77,38 @@ func _physics_process(_delta: float) -> void:
 		if not op.is_ai_controlled:
 			continue
 		if op.is_incapacitated or op.is_dead:
+			_clear_stuck_state(op)
 			continue
-		_drive_operator(op)
+		_drive_operator(op, delta)
 
 ## ──────────────────────────────────────────────
 ## PER-OPERATOR DECISION
 ## ──────────────────────────────────────────────
 
-func _drive_operator(op: OperatorBase) -> void:
+func _drive_operator(op: OperatorBase, delta: float) -> void:
 	if op.is_in_spawn_zone():
-		_leave_spawn(op)
+		_clear_stuck_state(op)
+		_leave_spawn(op, delta)
 		return
 
 	var enemy: Node3D = _find_combat_target(op)
 	if enemy != null:
-		_engage_combat(op, enemy)
+		_clear_stuck_state(op)
+		_engage_combat(op, enemy, delta)
 		return
+
+	# Disengaged: clear the semi-auto cadence so the next engagement opens with
+	# an immediate fresh trigger press (and no stale synthetic hold).
+	_reset_fire_cycle(op)
 
 	var objective: AICore = _select_objective(op)
 	if objective == null:
+		_clear_stuck_state(op)
 		# No objective: hold position, keep facing current aim.
 		op.ai_move_input = Vector2.ZERO
 		op.ai_fire_input = false
 		return
-	_move_to_terminal(op, objective)
+	_move_to_terminal(op, objective, delta)
 
 ## ──────────────────────────────────────────────
 ## SPAWN EXIT
@@ -89,11 +117,11 @@ func _drive_operator(op: OperatorBase) -> void:
 ## Moves the AI from its protected spawn room toward the arena floor. The spawn
 ## rooms sit at the arena extremes, so steering to the arena center always
 ## leaves the protected radius (own barrier is passable by its team).
-func _leave_spawn(op: OperatorBase) -> void:
+func _leave_spawn(op: OperatorBase, delta: float) -> void:
 	var target: Vector3 = Vector3.ZERO
 	if _arena != null:
 		target = _arena.get_arena_center()
-	_steer_toward(op, target, true)
+	_steer_toward(op, target, true, delta)
 
 ## ──────────────────────────────────────────────
 ## OBJECTIVE SELECTION
@@ -132,17 +160,18 @@ func _select_objective(op: OperatorBase) -> AICore:
 
 ## Moves the AI onto the terminal's capture perimeter and stops there so the
 ## CoreCaptureZone registers presence and the hack progresses. Facing the core.
-func _move_to_terminal(op: OperatorBase, core: AICore) -> void:
+func _move_to_terminal(op: OperatorBase, core: AICore, delta: float) -> void:
 	var to_core: Vector3 = core.global_position - op.global_position
 	to_core.y = 0.0
 	var dist: float = to_core.length()
 	op.ai_fire_input = false
 	if dist <= CAPTURE_APPROACH_RADIUS:
+		_clear_stuck_state(op)
 		# Inside the perimeter: stop and face the core.
 		op.ai_move_input = Vector2.ZERO
 		op.ai_aim_yaw = _yaw_to_point(op.global_position, core.global_position)
 		return
-	_steer_toward(op, core.global_position, false)
+	_steer_toward(op, core.global_position, false, delta)
 
 ## ──────────────────────────────────────────────
 ## COMBAT
@@ -167,7 +196,8 @@ func _find_combat_target(op: OperatorBase) -> Node3D:
 		var dist: float = op.global_position.distance_to(other.global_position)
 		if dist > max_range or dist >= best_dist:
 			continue
-		if not _has_clear_los(op, other.global_position + Vector3(0.0, TARGET_CENTER_HEIGHT, 0.0)):
+		var target_h: float = other.get_vision_origin().y - other.global_position.y if other.has_method("get_vision_origin") else TARGET_CENTER_HEIGHT
+		if not _has_clear_los(op, other.global_position + Vector3(0.0, target_h, 0.0)):
 			continue
 		best = other
 		best_dist = dist
@@ -189,27 +219,115 @@ func _find_combat_target(op: OperatorBase) -> Node3D:
 	return best
 
 ## Stops and fires at the enemy (facing it), holding position during the fight.
-func _engage_combat(op: OperatorBase, enemy: Node3D) -> void:
+## The operator weapon is SEMI_AUTO: FireMode.evaluate_trigger() only fires on
+## a fresh press edge, so the brain PULSES ai_fire_input (a short synthetic
+## press) once per weapon fire-rate window instead of holding it high — holding
+## would produce a single edge at engagement start and never fire again. The
+## shot itself flows through the normal OperatorBase pipeline (FireMode ->
+## WeaponBase -> _execute_tactical_shot); the shared autoaim lock that resolves
+## the hitscan onto the target's stance-aware position is maintained by
+## OperatorBase._update_autoaim for AI-controlled operators.
+func _engage_combat(op: OperatorBase, enemy: Node3D, delta: float) -> void:
 	op.ai_move_input = Vector2.ZERO
 	op.ai_aim_yaw = _yaw_to_point(op.global_position, enemy.global_position)
-	op.ai_fire_input = true
+	var op_id: int = op.get_instance_id()
+	var cycle: Dictionary = _fire_cycle.get(op_id, {"timer": 0.0, "pulse": 0})
+	var timer: float = float(cycle["timer"]) - delta
+	var pulse: int = int(cycle["pulse"])
+	if pulse > 0:
+		# Synthetic press held across FIRE_PULSE_PHYSICS_FRAMES so the operator
+		# observes pressed=true then released=false: one clean SEMI_AUTO edge.
+		op.ai_fire_input = true
+		pulse -= 1
+		if pulse == 0:
+			timer = maxf(0.05, op._get_fire_rate())
+	else:
+		op.ai_fire_input = false
+		if timer <= 0.0 and not op.is_in_spawn_zone():
+			pulse = FIRE_PULSE_PHYSICS_FRAMES
+			if AI_FIRE_DEBUG:
+				print("[AIFireDebug] P%d trigger pulse at %s" % [op.player_id, enemy.name])
+	_fire_cycle[op_id] = {"timer": timer, "pulse": pulse}
+
+## Clears semi-auto cadence bookkeeping for an operator (disengagement).
+func _reset_fire_cycle(op: OperatorBase) -> void:
+	if op != null:
+		_fire_cycle.erase(op.get_instance_id())
 
 ## ──────────────────────────────────────────────
-## STEERING HELPERS
+## STEERING HELPERS & STUCK RECOVERY
 ## ──────────────────────────────────────────────
 
-## Commands a straight-line move toward a world point, facing it. move_and_slide
-## (in OperatorBase) handles barrier/cover sliding for this minimal AI.
-func _steer_toward(op: OperatorBase, target: Vector3, keep_aim: bool) -> void:
+## Commands a straight-line move toward a world point, facing it. Includes
+## lightweight stuck detection to apply a lateral detour when blocked by cover.
+func _steer_toward(op: OperatorBase, target: Vector3, keep_aim: bool, delta: float) -> void:
 	var to_target: Vector3 = target - op.global_position
 	to_target.y = 0.0
 	if to_target.length_squared() < 0.0001:
 		op.ai_move_input = Vector2.ZERO
+		_clear_stuck_state(op)
 		return
 	var dir: Vector3 = to_target.normalized()
-	op.ai_move_input = Vector2(dir.x, dir.z)
+	var desired_input: Vector2 = Vector2(dir.x, dir.z)
+
+	_update_stuck_recovery(op, target, desired_input, delta)
+
 	if not keep_aim:
 		op.ai_aim_yaw = _yaw_to_point(op.global_position, target)
+
+## Clears stuck tracking state for an operator.
+func _clear_stuck_state(op: OperatorBase) -> void:
+	if op != null:
+		_stuck_state.erase(op.get_instance_id())
+
+## Tracks AI operator displacement over 0.5s windows. If continuous movement fails
+## to yield >= 0.2m displacement, triggers an 0.8s lateral detour (alternating sides).
+func _update_stuck_recovery(op: OperatorBase, target: Vector3, desired_input: Vector2, delta: float) -> void:
+	var op_id: int = op.get_instance_id()
+	var state: Dictionary = _stuck_state.get(op_id, {})
+	if state.is_empty():
+		state = {
+			"stuck_timer": 0.0,
+			"start_pos": op.global_position,
+			"recovery_timer": 0.0,
+			"recovery_input": Vector2.ZERO,
+			"side_toggle": -1.0
+		}
+		_stuck_state[op_id] = state
+
+	var recovery_timer: float = state.get("recovery_timer", 0.0) as float
+	if recovery_timer > 0.0:
+		recovery_timer -= delta
+		state["recovery_timer"] = maxf(0.0, recovery_timer)
+		op.ai_move_input = state.get("recovery_input", desired_input) as Vector2
+		if recovery_timer <= 0.0:
+			state["stuck_timer"] = 0.0
+			state["start_pos"] = op.global_position
+		return
+
+	var stuck_timer: float = state.get("stuck_timer", 0.0) as float
+	var start_pos: Vector3 = state.get("start_pos", op.global_position) as Vector3
+
+	stuck_timer += delta
+	state["stuck_timer"] = stuck_timer
+
+	if stuck_timer >= STUCK_CHECK_WINDOW:
+		var dist: float = op.global_position.distance_to(start_pos)
+		if dist < STUCK_MIN_DISPLACEMENT:
+			var prev_side: float = state.get("side_toggle", -1.0) as float
+			var new_side: float = -1.0 if prev_side > 0.0 else 1.0
+			state["side_toggle"] = new_side
+			var lateral_dir: Vector2 = Vector2(-desired_input.y, desired_input.x) * new_side
+			state["recovery_timer"] = STUCK_RECOVERY_DURATION
+			state["recovery_input"] = lateral_dir
+			state["stuck_timer"] = 0.0
+			op.ai_move_input = lateral_dir
+		else:
+			state["stuck_timer"] = 0.0
+			state["start_pos"] = op.global_position
+			op.ai_move_input = desired_input
+	else:
+		op.ai_move_input = desired_input
 
 ## Yaw (radians) that makes aim_direction point at `point` from `from`.
 func _yaw_to_point(from: Vector3, point: Vector3) -> float:
@@ -223,8 +341,9 @@ func _yaw_to_point(from: Vector3, point: Vector3) -> float:
 ## LoS ray from the operator's eye to a target chest position, using the
 ## operator's combat collision mask (same path as the real shots).
 func _has_clear_los(op: OperatorBase, target_pos: Vector3) -> bool:
-	var eye: Vector3 = op.global_position + Vector3(0.0, EYE_HEIGHT, 0.0)
+	var eye: Vector3 = op.get_vision_origin() if op.has_method("get_vision_origin") else op.global_position + Vector3(0.0, EYE_HEIGHT, 0.0)
 	var los: LineOfSightQuery.LoSResult = LineOfSightQuery.test_los(
 		op, eye, target_pos, [op.get_rid()], op.combat_collision_mask
 	)
 	return los.is_visible
+

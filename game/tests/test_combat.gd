@@ -56,7 +56,7 @@ func run_test() -> void:
 	_check(forward_dir.distance_to(Vector3(1.0, 0.0, 0.0)) < 0.01,
 		"explicit aim direction is +X (%.2f, %.2f, %.2f)" % [forward_dir.x, forward_dir.y, forward_dir.z])
 
-	var eye_pos: Vector3 = op1.global_position + Vector3(0.0, 1.2, 0.0)
+	var eye_pos: Vector3 = op1.get_shot_origin()
 	var target_end_pos: Vector3 = eye_pos + (forward_dir * op1.weapon_range)
 	print("Raycast: ", eye_pos, " -> ", target_end_pos)
 
