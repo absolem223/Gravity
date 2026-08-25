@@ -13,10 +13,15 @@ extends Node3D
 @export_range(45.0, 80.0) var pitch_angle_degrees: float = 65.0
 
 ## Minimum height/distance offset for closest camera zoom
-@export var min_zoom_distance: float = 12.0
+@export var min_zoom_distance: float = 8.0
 
 ## Maximum height/distance offset for farthest camera zoom (when players separate)
 @export var max_zoom_distance: float = 50.0
+
+## Tactical manual zoom tuning (Mouse Wheel)
+@export var manual_zoom_step: float = 2.0
+@export var manual_zoom_min_offset: float = -8.0  ## Allows zooming closer (in)
+@export var manual_zoom_max_offset: float = 16.0  ## Allows zooming farther (out)
 
 ## Padding factor applied to player group bounding box to trigger zoom
 @export var bounding_box_padding: float = 6.0
@@ -41,8 +46,34 @@ var _target_centroid: Vector3 = Vector3.ZERO
 ## Internal target distance offset along local Z axis
 var _current_zoom_distance: float = 16.0
 
+## Manual zoom offset applied by player mouse wheel input
+var _manual_zoom_offset: float = 0.0
+
 func _ready() -> void:
 	_setup_camera_transform()
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.is_pressed():
+		var mb: InputEventMouseButton = event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
+			zoom_in()
+		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			zoom_out()
+
+func zoom_in() -> void:
+	_manual_zoom_offset = clampf(_manual_zoom_offset - manual_zoom_step, manual_zoom_min_offset, manual_zoom_max_offset)
+
+func zoom_out() -> void:
+	_manual_zoom_offset = clampf(_manual_zoom_offset + manual_zoom_step, manual_zoom_min_offset, manual_zoom_max_offset)
+
+func get_current_zoom() -> float:
+	return _current_zoom_distance
+
+func get_manual_zoom_offset() -> float:
+	return _manual_zoom_offset
+
+func set_manual_zoom_offset(val: float) -> void:
+	_manual_zoom_offset = clampf(val, manual_zoom_min_offset, manual_zoom_max_offset)
 
 func _physics_process(delta: float) -> void:
 	if targets.is_empty():
@@ -57,8 +88,17 @@ func _physics_process(delta: float) -> void:
 func _find_targets_in_group() -> void:
 	var group_nodes: Array[Node] = get_tree().get_nodes_in_group("players")
 	for node: Node in group_nodes:
-		if node is Node3D and not targets.has(node as Node3D):
-			targets.append(node as Node3D)
+		var n3d: Node3D = node as Node3D
+		if n3d == null:
+			continue
+		if n3d is OperatorBase and (n3d as OperatorBase).is_incapacitated:
+			continue
+		if n3d is DroneBase:
+			var d: DroneBase = n3d as DroneBase
+			if d.operator == null or not d.operator.is_piloting_drone:
+				continue
+		if not targets.has(n3d):
+			targets.append(n3d)
 
 ## Configures initial rotation and camera hierarchy
 func _setup_camera_transform() -> void:
@@ -84,12 +124,22 @@ func _update_centroid_and_zoom() -> void:
 	var max_pos: Vector3 = Vector3(-INF, -INF, -INF)
 
 	for target: Node3D in targets:
-		if is_instance_valid(target) and target.is_inside_tree() and target.visible:
-			var pos: Vector3 = target.global_position
-			sum_position += pos
-			min_pos = min_pos.min(pos)
-			max_pos = max_pos.max(pos)
-			valid_targets += 1
+		if not (is_instance_valid(target) and target.is_inside_tree() and target.visible):
+			continue
+		# Dead/downed operators are excluded from framing so the living squad
+		# stays centered (P1-3). They re-join automatically on respawn.
+		if target is OperatorBase and (target as OperatorBase).is_incapacitated:
+			continue
+		# Only a piloted drone widens framing; an orphaned escort drone must not.
+		if target is DroneBase:
+			var d: DroneBase = target as DroneBase
+			if d.operator == null or not d.operator.is_piloting_drone or d.operator.is_incapacitated:
+				continue
+		var pos: Vector3 = target.global_position
+		sum_position += pos
+		min_pos = min_pos.min(pos)
+		max_pos = max_pos.max(pos)
+		valid_targets += 1
 
 	if valid_targets > 0:
 		_target_centroid = sum_position / float(valid_targets)
@@ -99,8 +149,9 @@ func _update_centroid_and_zoom() -> void:
 		var spread_z: float = max_pos.z - min_pos.z
 		var max_spread: float = minf(max(spread_x, spread_z), max_framing_spread) + bounding_box_padding
 
-		# Map spread to zoom distance range
-		var target_zoom: float = min_zoom_distance + (max_spread * 0.8)
+		# Map spread to base zoom distance range (12.0 base + spread * 0.8) + manual offset
+		var base_zoom: float = 12.0 + (max_spread * 0.8)
+		var target_zoom: float = base_zoom + _manual_zoom_offset
 		_current_zoom_distance = clampf(target_zoom, min_zoom_distance, max_zoom_distance)
 
 ## Interpolates position and camera offset smoothly

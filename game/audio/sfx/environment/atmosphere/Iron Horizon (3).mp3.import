@@ -1,0 +1,19 @@
+[remap]
+
+importer="mp3"
+type="AudioStreamMP3"
+uid="uid://ba0fp7pq4e05p"
+path="res://.godot/imported/Iron Horizon (3).mp3-2d1f437079fd2f035d47f98243d11f6a.mp3str"
+
+[deps]
+
+source_file="res://audio/sfx/environment/atmosphere/Iron Horizon (3).mp3"
+dest_files=["res://.godot/imported/Iron Horizon (3).mp3-2d1f437079fd2f035d47f98243d11f6a.mp3str"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

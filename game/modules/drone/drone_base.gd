@@ -89,12 +89,27 @@ const TARGET_CENTER_HEIGHT: float = 1.0
 ## Current active mode
 var current_mode: DroneMode = DroneMode.ESCORT
 
+## ── Autonomous steering seam (AI-driven drones) ─────────────────────────────
+## Control hook, NOT a stat: when DroneAIController assigns a Vector3 world
+## point, the ESCORT autopilot flies to it instead of the formation slot behind
+## the operator. Velocity math, speed caps, battery drain, autonomous combat and
+## signals run through the exact same code paths a human drone uses. Always
+## null for human-controlled drones (stock escort behaviour, byte-identical).
+var ai_steering_target: Variant = null
+
 ## Current shared tactical battery level (0.0 to 100.0)
 var battery_current: float = 100.0
 var battery_max: float = 100.0
 
 ## State flag for drift mode (when out of range)
 var is_drifting: bool = false
+
+## Drone SFX (Gameplay SFX V1) — reuse the existing AudioManager pool for one-shot
+## weapon fire, and a dedicated looping player for continuous flight/movement hum.
+const DRONE_FLIGHT_STREAM: AudioStream = preload("res://audio/sfx/drone/flight/drone_flight_01.wav")
+const DRONE_WEAPON_STREAM: AudioStream = preload("res://audio/sfx/drone/weapons/648142__andreas__laser-assault-weapon.mp3")
+var _audio_manager: Node = null
+var _flight_player: AudioStreamPlayer = null
 
 ## Dynamic Battery Drainage Rates per Second
 const DRAIN_RATES: Dictionary = {
@@ -119,6 +134,14 @@ func _ready() -> void:
 	_setup_vision_cone()
 	_setup_pilot_vision_cone()
 	_update_visuals()
+	# Cache the AudioManager autoload for one-shot SFX (no class_name by design).
+	_audio_manager = get_node_or_null(^"/root/AudioManager")
+	# Dedicated looping player for continuous drone flight/movement hum (SFX bus).
+	_flight_player = AudioStreamPlayer.new()
+	_flight_player.name = "FlightSFX"
+	_flight_player.bus = &"SFX"
+	_flight_player.stream = DRONE_FLIGHT_STREAM
+	add_child(_flight_player)
 
 ## Builds the drone's weapon from the same WeaponBase component chain the
 ## operators use (Magazine / AmmoReserve / ReloadState / FireMode). The drone
@@ -161,6 +184,18 @@ func _physics_process(delta: float) -> void:
 			_process_drone_combat(delta)
 
 	move_and_slide()
+
+	# Continuous drone flight/movement hum: plays while the drone is actually
+	# moving horizontally, stops immediately when it stops. Uses a dedicated
+	# looping player on the SFX bus (no new audio system; one-shot gunfire uses
+	# the shared AudioManager pool).
+	var horiz_speed: float = Vector2(velocity.x, velocity.z).length()
+	var moving: bool = horiz_speed > 0.5
+	if _flight_player != null:
+		if moving and not _flight_player.playing:
+			_flight_player.play()
+		elif not moving and _flight_player.playing:
+			_flight_player.stop()
 
 ## Initializes and configures the vision cone component
 func _setup_vision_cone() -> void:
@@ -234,11 +269,17 @@ func _process_range_checks() -> void:
 	var dist: float = global_position.distance_to(operator.global_position)
 	is_drifting = dist > max_range_from_operator
 
-## Escort Mode movement: flies smoothly toward operator escort target using velocity-based autopilot
+## Escort Mode movement: flies smoothly toward operator escort target using velocity-based autopilot.
+## The destination is the formation slot behind the operator, UNLESS an external
+## AI controller set ai_steering_target — then the SAME autopilot flies to that
+## point instead (search/engage/return manoeuvres). Pure control override.
 func _process_escort_mode(delta: float) -> void:
 	var op_transform: Transform3D = operator.global_transform
 	var target_offset: Vector3 = op_transform.basis.z * follow_distance
 	var target_pos: Vector3 = op_transform.origin + target_offset + Vector3(0.0, follow_height_offset, 0.0)
+	var ai_point: Variant = ai_steering_target
+	if ai_point != null:
+		target_pos = ai_point
 
 	var to_target: Vector3 = target_pos - global_position
 	var dist: float = to_target.length()
@@ -246,7 +287,10 @@ func _process_escort_mode(delta: float) -> void:
 	if dist < 0.05:
 		velocity = Vector3.ZERO
 		global_position = target_pos
-		rotation.y = lerp_angle(rotation.y, operator.rotation.y, follow_lerp_speed * delta)
+		# While under AI steering the hull keeps its combat/travel facing; only
+		# the stock escort snaps back to the operator's rotation.
+		if ai_point == null:
+			rotation.y = lerp_angle(rotation.y, operator.rotation.y, follow_lerp_speed * delta)
 		return
 
 	var desired_dir: Vector3 = to_target / dist
@@ -493,6 +537,9 @@ func _process_autonomous_combat(delta: float) -> void:
 ## drone's facing, pitched down to battlefield height. Both paths reuse the same
 ## LineOfSightQuery + GameRules pipeline as the operator.
 func _execute_drone_shot(target: Node3D = null) -> void:
+	# SFX: drone weapon fire on every resolved shot (fire-and-forget, SFX bus).
+	if _audio_manager != null:
+		_audio_manager.play_sfx(DRONE_WEAPON_STREAM)
 	_fire_cooldown = weapon.fire_mode.fire_rate if weapon.fire_mode != null else weapon_fire_rate
 
 	var muzzle_pos: Vector3 = global_position

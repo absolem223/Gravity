@@ -1,0 +1,19 @@
+[remap]
+
+importer="mp3"
+type="AudioStreamMP3"
+uid="uid://enr6jxyir5pt"
+path="res://.godot/imported/Victoria 1.mp3-2f8d11b718a2bd724f9284c8ea38b0f6.mp3str"
+
+[deps]
+
+source_file="res://audio/music/victory/Victoria 1.mp3"
+dest_files=["res://.godot/imported/Victoria 1.mp3-2f8d11b718a2bd724f9284c8ea38b0f6.mp3str"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

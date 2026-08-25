@@ -285,4 +285,7 @@ func _on_start() -> void:
 		_status.text = err
 		return
 	GameConfig.apply_runtime_settings()
+	var music := get_tree().root.get_node_or_null("MusicController")
+	if music != null and music.get_current_state() != MusicController.State.COMBAT:
+		music.set_state(MusicController.State.COMBAT, 1.5)
 	get_tree().change_scene_to_file(GameConfig.MATCH_SCENE_PATH)

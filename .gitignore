@@ -24,5 +24,8 @@ scratch/
 tmp/
 *.log
 
+# Raw sound source library (not game-ready assets; those live in game/audio/)
+Biblioteca de sonidos/
+
 # Keep empty directories
 !.gitkeep

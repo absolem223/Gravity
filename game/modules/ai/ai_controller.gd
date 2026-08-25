@@ -37,6 +37,10 @@ var _player_manager: PlayerManager = null
 var _terminal_manager: TerminalManager = null
 var _arena: Arena = null
 
+## Child brain for AI-OWNED drones (ESCORT/SEARCH/ENGAGE/RETURN autonomy).
+## Created here so Match wiring stays untouched.
+var _drone_controller: DroneAIController = null
+
 ## Per-operator semi-auto cadence state: instance_id -> {"timer": float, "pulse": int}.
 ## timer counts down the current weapon fire-rate window; pulse > 0 holds the
 ## synthetic trigger press for that many remaining physics frames.
@@ -65,6 +69,11 @@ func setup(match: Match) -> void:
 	_player_manager = match.get_player_manager()
 	_terminal_manager = match.get_terminal_manager()
 	_arena = match.get_arena()
+	if _drone_controller == null:
+		_drone_controller = DroneAIController.new()
+		_drone_controller.name = "DroneAIController"
+		add_child(_drone_controller)
+	_drone_controller.setup(match)
 
 func _physics_process(delta: float) -> void:
 	# Only drive while the match is live: during INTRO every operator is

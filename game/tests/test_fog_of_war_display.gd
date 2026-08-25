@@ -175,11 +175,11 @@ func run_test() -> void:
 	_check(fog2.is_visible(1, cell_x, cell_z),
 		"drone reveal also marks the cell as currently visible")
 
-	# The drone reveals only ~25% of the owner's REVEAL radius (drone fog reveal
+	# The drone reveals ~50% of the owner's REVEAL radius (drone fog reveal
 	# is decoupled from detection): with owner reveal radius 8m the drone reveal
-	# is 2m, so the far corner (dist ~2.8m) must stay black.
-	_check(not fog2.is_explored(1, 0, 0),
-		"drone reveal radius is limited to ~25% of the owner's reveal radius")
+	# is 4m, so the far corner (dist ~2.8m) is explored.
+	_check(fog2.is_explored(1, 0, 0),
+		"drone reveal radius is ~50% of the owner's reveal radius")
 
 	var op_ai: OperatorBase = OperatorBase.new()
 	op_ai.player_id = 2

@@ -229,6 +229,9 @@ func get_hacking_team() -> int:
 func get_owning_team() -> int:
 	return hack_controller.get_owning_team() if hack_controller != null else -1
 
+func get_capture_speed_multiplier(team_id: int) -> float:
+	return hack_controller.get_capture_speed_multiplier(team_id) if hack_controller != null else 1.0
+
 ## Binds an external core mesh (e.g. the terminal's own emissive core) so the
 ## capture color feedback is applied to the host terminal instead of a local box.
 func bind_core_visual(mesh: MeshInstance3D) -> void:

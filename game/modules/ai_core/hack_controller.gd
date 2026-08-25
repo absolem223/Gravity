@@ -123,12 +123,21 @@ func get_team_presence_count(team_id: int) -> int:
 		var pm_nodes: Array[Node] = get_tree().get_nodes_in_group("player_manager")
 		if not pm_nodes.is_empty():
 			pm = pm_nodes[0] as PlayerManager
-	
+
 	var active_count: int = 0
 	for op_id: int in _team_presence[team_id].keys():
+		var op: OperatorBase = null
 		if pm != null:
-			var op: OperatorBase = pm.get_operator(op_id)
-			if op != null and not op.is_dead and not op.is_incapacitated:
+			op = pm.get_operator(op_id)
+		if op == null and is_inside_tree():
+			for p_node: Node in get_tree().get_nodes_in_group("players"):
+				if p_node is OperatorBase and not p_node.is_queued_for_deletion():
+					var o: OperatorBase = p_node as OperatorBase
+					if o.player_id == op_id:
+						op = o
+						break
+		if op != null:
+			if not op.is_dead and not op.is_incapacitated:
 				active_count += 1
 		else:
 			active_count += 1
@@ -141,6 +150,16 @@ func get_present_teams() -> Array[int]:
 		if get_team_presence_count(k) >= min_operators_to_contest:
 			teams.append(k)
 	return teams
+
+## Returns the capture speed multiplier (1.0 or 2.0) for a team based on perimeter presence.
+## 2.0x if allied_count >= 2 and enemy_count < 2; otherwise 1.0x.
+func get_capture_speed_multiplier(team_id: int) -> float:
+	var allied_count: int = get_team_presence_count(team_id)
+	var enemy_count: int = 0
+	for t: int in _team_presence.keys():
+		if t != team_id:
+			enemy_count += get_team_presence_count(t)
+	return 2.0 if (allied_count >= 2 and enemy_count < 2) else 1.0
 
 ## ──────────────────────────────────────────────
 ## STATE EVALUATION LOGIC
@@ -211,7 +230,8 @@ func _process_idle() -> void:
 	pass  ## Progress stable at 0 or previous value — no action
 
 func _process_hacking(delta: float) -> void:
-	hack_progress += hack_speed_percent_per_second * delta
+	var multiplier: float = get_capture_speed_multiplier(hacking_team_id)
+	hack_progress += hack_speed_percent_per_second * multiplier * delta
 	hack_progress = minf(hack_progress, capture_threshold_percent)
 	hack_progress_changed.emit(hack_progress, hacking_team_id)
 

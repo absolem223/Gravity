@@ -27,8 +27,45 @@ var _team_detected: Dictionary = {}
 var _visibility_sync_timer: float = 0.0
 const VISIBILITY_SYNC_INTERVAL: float = 0.15
 
+## Multiplier over the drone's existing VISUAL reveal radius (owner reveal_radius
+## x FogOfWarDisplay.DRONE_REVEAL_FRACTION) used when a deployed drone acts as a
+## render-reveal source for enemy operators. Detection (VisionCone3D.view_range)
+## is NOT affected. 1.25 = +25% per design request.
+const DRONE_RENDER_REVEAL_MULT: float = 1.25
+
 func _ready() -> void:
 	add_to_group("squad_vision_registry")
+	# Deterministic visibility synchronization at lifecycle transitions (spawn,
+	# LOADING/INTRO/LIVE phase changes) so enemy operators are hidden/found
+	# immediately instead of waiting for the first periodic tick.
+	call_deferred("_connect_lifecycle_signals")
+
+## Connects to the Match phase signal and the PlayerManager spawn signal once,
+## deferred, so current_scene and sibling nodes exist. Both connections are
+## read-only observers: Match and PlayerManager behavior is never modified.
+func _connect_lifecycle_signals() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var sc: Node = tree.current_scene
+	if sc != null and sc != self and sc.has_signal("phase_changed"):
+		if not sc.is_connected("phase_changed", _on_match_phase_changed):
+			sc.connect("phase_changed", _on_match_phase_changed)
+	if sc != null:
+		for child: Node in sc.get_children():
+			if child is PlayerManager:
+				if not child.is_connected("player_spawned", _on_player_spawned):
+					child.connect("player_spawned", _on_player_spawned)
+				break
+
+## Immediate resync whenever the match phase changes (LOADING/INTRO/LIVE/END).
+func _on_match_phase_changed(_phase: int) -> void:
+	sync_enemy_visibility()
+
+## Deferred resync when an operator spawns so its mesh starts in the correct
+## visibility state (a fresh enemy spawn is hidden until revealed).
+func _on_player_spawned(_p_id: int, _op: OperatorBase) -> void:
+	call_deferred("sync_enemy_visibility")
 
 func _process(delta: float) -> void:
 	_visibility_sync_timer += delta
@@ -118,12 +155,24 @@ func get_all_squad_detected_targets() -> Array[Node3D]:
 ## FOG OF WAR — ENEMY VISIBILITY SYNC
 ## ──────────────────────────────────────────────
 
-## Hides enemies that are NOT detected by the observing teams' vision unions,
-## and reveals them as soon as they are detected.
+## Hides enemy operators that are NOT inside any human operator's current
+## Fog-of-War reveal area, and reveals them as soon as they enter it.
 ##
-## Local co-op shares a single renderer, so hiding is a single global decision:
-## an entity is shown if (a) it belongs to an observing (human) team, or (b) it is
-## detected by the vision union of ANY observing team. All-AI matches disable fog.
+## Render-visibility policy (deliberately separate from DETECTION):
+##   - Detection (VisionCone3D.view_range 32m/40m + LoS) is untouched and keeps
+##     feeding _team_detected for intel/autoaim/AI. An enemy can be "detected"
+##     at 32m yet not RENDERED because it stands outside the 16m reveal circle.
+##   - Enemy operator render state follows the same ground-reveal geometry the
+##     FogOfWarDisplay paints (reveal_radius circles around human operators).
+##   - Own-team operators are always rendered (never fog-filtered).
+##   - Drones (own AND enemy) are render targets against the same reveal
+##     sources: own team -> visible; enemy drone -> inside a 16m operator
+##     circle or an allied drone's 10m circle. Detection never renders.
+##
+## Performance contract: ONE pass per sync cycle collects the human operators
+## AND their deployed drones as reveal sources; the per-entity test afterwards
+## is a cheap XZ distance check against that small cached array (no nested
+## group queries, no per-entity scans).
 func sync_enemy_visibility() -> void:
 	if not _should_sync_visibility():
 		return
@@ -134,27 +183,113 @@ func sync_enemy_visibility() -> void:
 	if observing_teams.is_empty():
 		return
 
+	# Collected ONCE per cycle — never inside a per-entity loop.
+	var sources: Array[Dictionary] = _collect_reveal_sources(tree)
+
 	for node: Node in tree.get_nodes_in_group("players"):
 		var op: OperatorBase = node as OperatorBase
 		if op == null or op.is_queued_for_deletion():
 			continue
-		var shown: bool = _is_entity_visible(op, op.team_id, observing_teams)
+		# Dead/downed operators are skipped by _apply_fog_visibility anyway.
+		var shown: bool = false
+		if not op.is_incapacitated:
+			shown = _entity_render_visible(op.team_id, op.global_position, observing_teams, sources)
 		_apply_fog_visibility(op, shown)
 	for node: Node in tree.get_nodes_in_group("drones"):
+		# Enemy drones are RENDER TARGETS evaluated against the SAME reveal
+		# sources as operators: own team -> visible; else inside a human
+		# operator's 16m circle or an allied drone's 10m circle. Detection
+		# (view_range 24m) plays no role in render state.
 		var drone: DroneBase = node as DroneBase
 		if drone == null or drone.is_queued_for_deletion() or drone.operator == null:
 			continue
-		var shown: bool = _is_entity_visible(drone, drone.operator.team_id, observing_teams)
-		_apply_fog_visibility(drone, shown)
+		var shown_d: bool = _entity_render_visible(drone.operator.team_id, drone.global_position, observing_teams, sources)
+		_apply_fog_visibility(drone, shown_d)
+
+## Collects the Fog-of-War reveal sources for this sync cycle:
+##   1. Every living, human-controlled operator (radius = reveal_radius).
+##   2. Every deployed drone OWNED by a human operator on an observing team
+##      (radius = owner.reveal_radius x DRONE_REVEAL_FRACTION x
+##      DRONE_RENDER_REVEAL_MULT, i.e. the drone's existing visual ground-reveal
+##      radius +25%). A drone inside its circle renders nearby enemy operators,
+##      exactly like an operator does. Detection/view_range stay untouched.
+## Two group queries per sync cycle total; no nested scans.
+func _collect_reveal_sources(tree: SceneTree) -> Array[Dictionary]:
+	var sources: Array[Dictionary] = []
+	for node: Node in tree.get_nodes_in_group("players"):
+		var op: OperatorBase = node as OperatorBase
+		if op == null or op.is_queued_for_deletion() or op.is_ai_controlled or op.is_incapacitated:
+			continue
+		var r: float = op.reveal_radius
+		sources.append({"team": op.team_id, "pos": op.global_position, "r2": r * r})
+	for node: Node in tree.get_nodes_in_group("drones"):
+		var d: DroneBase = node as DroneBase
+		if d == null or not is_instance_valid(d) or d.is_queued_for_deletion():
+			continue
+		# Same ownership rule FogOfWarDisplay._feed_drone_vision uses: only
+		# drones of HUMAN operators contribute (AI-owned drones reveal nothing).
+		if d.operator == null or d.operator.is_ai_controlled:
+			continue
+		var dr: float = d.operator.reveal_radius * FogOfWarDisplay.DRONE_REVEAL_FRACTION * DRONE_RENDER_REVEAL_MULT
+		sources.append({"team": d.operator.team_id, "pos": d.global_position, "r2": dr * dr})
+	return sources
+
+## Render-visibility decision for one RENDER TARGET (operator OR drone; cheap:
+## no tree/group queries). Own team -> always visible. Otherwise visible iff
+## inside the XZ reveal circle of a human operator (reveal_radius) or an allied
+## human-owned drone (its +25% visual reveal radius) on an observing team.
+## Mirrors FogOfWarDisplay's circle geometry, which tests dx/dz only.
+func _entity_render_visible(owner_team: int, pos: Vector3, observing_teams: Array[int], sources: Array[Dictionary]) -> bool:
+	if observing_teams.has(owner_team):
+		return true
+	for s: Dictionary in sources:
+		if not observing_teams.has(int(s["team"])):
+			continue
+		var sp: Vector3 = s["pos"]
+		var dx: float = pos.x - sp.x
+		var dz: float = pos.z - sp.z
+		if dx * dx + dz * dz <= float(s["r2"]):
+			return true
+	return false
 
 ## Teams that contain at least one human (non-AI) operator. Only these teams
 ## drive the fog-of-war decision on the shared local screen.
+##
+## Strategy 1 reads the AUTHORITATIVE lobby/session configuration (GameConfig
+## autoload slots, the same source PlayerManager uses for slot.control_mode).
+## This is immune to Match._start_loading()/_start_intro() temporarily forcing
+## is_ai_controlled = true on every operator during LOADING/INTRO.
+##
+## Strategy 2 (fallback for sandbox/tests without a lobby config) scans the
+## live operators' runtime AI flag — only reliable outside the pre-match freeze.
 func _observing_team_ids() -> Array[int]:
 	var teams: Array[int] = []
 	var seen: Dictionary = {}
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return teams
+
+	# Strategy 1: session/lobby slots — authoritative human-team assignment.
+	var session: Node = tree.root.get_node_or_null("GameConfig")
+	if session != null and session.has_method("get_enabled_player_ids"):
+		var enabled_ids: Array = session.call("get_enabled_player_ids")
+		for p_id: int in enabled_ids:
+			var slot: Variant = session.call("get_slot", p_id)
+			if slot == null:
+				continue
+			# SessionConfig.ControlMode.HUMAN == 0 (AI == 1). Literal avoids a
+			# hard dependency on the autoload script's class (none declared).
+			if int(slot.control_mode) != 0:
+				continue
+			var t: int = int(slot.team_id)
+			if not seen.has(t):
+				seen[t] = true
+				teams.append(t)
+		if not teams.is_empty():
+			return teams
+
+	# Strategy 2: runtime detection (sandbox/tests without GameConfig config,
+	# or LIVE phase when no session exists).
 	for node: Node in tree.get_nodes_in_group("players"):
 		var op: OperatorBase = node as OperatorBase
 		if op == null or op.is_ai_controlled:
@@ -163,17 +298,6 @@ func _observing_team_ids() -> Array[int]:
 			seen[op.team_id] = true
 			teams.append(op.team_id)
 	return teams
-
-## Entity is shown when it belongs to an observing team or when any observing
-## team's vision union has detected it.
-func _is_entity_visible(entity: Node3D, owner_team: int, observing_teams: Array[int]) -> bool:
-	for team: int in observing_teams:
-		if team == owner_team:
-			return true
-	for team: int in observing_teams:
-		if is_entity_detected_by_team(entity, team):
-			return true
-	return false
 
 func _apply_fog_visibility(entity: Node3D, detected: bool) -> void:
 	if entity is OperatorBase:
@@ -195,9 +319,9 @@ func _apply_fog_visibility(entity: Node3D, detected: bool) -> void:
 		if mesh != null:
 			mesh.visible = detected
 
-## Fog-of-war only runs while a live match is active (or when no Match scene is
-## present, e.g. sandbox/tests). During the intro cinematic the Match owns the
-## operators' visibility, so this sync must not fight it.
+## Fog-of-war visibility sync runs during every active match phase
+## (LOADING/INTRO/LIVE) so enemies are already hidden before the countdown.
+## Only MATCH_END stops it. In sandbox/tests (no Match scene) sync always runs.
 func _should_sync_visibility() -> bool:
 	var tree: SceneTree = get_tree()
 	if tree == null:
@@ -205,6 +329,8 @@ func _should_sync_visibility() -> bool:
 	var sc: Node = tree.current_scene
 	if sc == null or not is_instance_valid(sc) or sc == self:
 		return true
+	if sc.has_method("get_phase"):
+		return int(sc.call("get_phase")) != int(Match.Phase.MATCH_END)
 	if sc.has_method("is_live"):
 		return sc.is_live()
 	return true

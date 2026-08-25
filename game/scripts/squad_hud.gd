@@ -361,10 +361,18 @@ func _update_hud_state() -> void:
 		else:
 			card.visible = false
 
-	# Update Top Intel Summary
-	if intel_label != null and squad_vision_registry != null:
-		var target_count: int = squad_vision_registry.get_all_squad_detected_targets().size()
-		intel_label.text = "SQUAD INTEL: %d TARGETS IN VISION" % target_count
+	# Update Top Intel Summary. This readout is a diagnostic overlay; it is only
+	# shown when joystick/input diagnostics are enabled (off by default) so it
+	# never clutters normal gameplay (Bug 3). The toggle is preserved in settings.
+	if intel_label != null:
+		var show_diag: bool = false
+		var cfg: Node = get_tree().root.get_node_or_null("GameConfig") if get_tree() != null else null
+		if cfg != null and "show_joystick_diagnostics" in cfg:
+			show_diag = cfg.show_joystick_diagnostics as bool
+		intel_label.visible = show_diag
+		if show_diag and squad_vision_registry != null:
+			var target_count: int = squad_vision_registry.get_all_squad_detected_targets().size()
+			intel_label.text = "SQUAD INTEL: %d TARGETS IN VISION" % target_count
 
 ## Builds the AI Core status strip below the intel label
 func _build_core_strip() -> void:

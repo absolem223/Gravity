@@ -41,6 +41,7 @@ class TacticalVisionCone extends MeshInstance3D:
 		var wr: float = op.weapon_range if "weapon_range" in op else 20.0
 		if "weapon" in op and op.weapon != null:
 			wr = op.weapon.range
+		var rr: float = op.reveal_radius if "reveal_radius" in op else 16.0
 		var ay: float = op.aim_yaw if "aim_yaw" in op else 0.0
 		# The cone follows the SAME authoritative XZ aim direction firing uses, so
 		# the gamepad right stick points the visible cone horizontally exactly
@@ -53,9 +54,9 @@ class TacticalVisionCone extends MeshInstance3D:
 		if _fill_material != null:
 			var a: float = CONE_FILL_COLOR.a * blend
 			_fill_material.albedo_color = Color(CONE_FILL_COLOR.r, CONE_FILL_COLOR.g, CONE_FILL_COLOR.b, a)
-		_build_mesh(op, vr, fov, wr, fwd)
+		_build_mesh(op, vr, fov, wr, rr, fwd)
 
-	func _build_mesh(op: Node, vr: float, fov: float, wr: float, fwd: Vector3) -> void:
+	func _build_mesh(op: Node, vr: float, fov: float, wr: float, rr: float, fwd: Vector3) -> void:
 		if not op.is_inside_tree():
 			return
 		var st: SurfaceTool = SurfaceTool.new()
@@ -71,10 +72,10 @@ class TacticalVisionCone extends MeshInstance3D:
 		var yaw: float = atan2(-fwd.x, -fwd.z)
 		var hf: float = deg_to_rad(fov * 0.5)
 		var up: Vector3 = Vector3.UP
-		# The cone's reach is the WEAPON range (what firing actually does), not the
-		# detection view_range. Decoupled: view_range only feeds transient enemy
-		# detection; the fan shows the player exactly how far shots land.
-		var mr: float = wr
+		# The cone's visual reach uses reveal_radius (16m) so the visible fan matches
+		# the ground fog reveal circle. Detection still uses vr (vision_cone.view_range).
+		# The orange inner ring (drawn below) still marks the separate weapon fire-reach.
+		var mr: float = rr
 		local_origin = Vector3(local_origin.x, floor_y, local_origin.z)
 		var eps: Array[Vector3] = []
 		for i: int in range(-RAYS_PER_HALF, RAYS_PER_HALF + 1):
@@ -227,6 +228,15 @@ const TEAM_DEFENDERS: int = 1
 const DEFAULT_RESPAWN_TIME: float = 5.0
 const DEFAULT_INVULNERABILITY_TIME: float = 2.0
 
+## ── SFX wiring (Gameplay SFX V1) ──────────────────────────────────────────────
+## Footsteps use the pre-migrated operator footstep loop. dash / landing / death /
+## damage have NO appropriate migrated asset yet, so their call sites are PENDING.
+const FOOTSTEP_STREAM: AudioStream = preload("res://audio/sfx/operator/footsteps/operator_footsteps_01.mp3")
+const GUNSHOT_STREAM: AudioStream = preload("res://audio/sfx/weapons/rifle/fire/weapons_rifle_fire_01.wav")
+var _audio_manager: Node = null
+var _footstep_timer: float = 0.0
+var _was_moving: bool = false
+
 ## Team assignment (0 = ATTACKERS, 1 = DEFENDERS)
 var team_id: int = TEAM_ATTACKERS
 
@@ -255,6 +265,7 @@ var is_incapacitated: bool:
 	set(val):
 		if val and current_state == OperatorState.ALIVE:
 			current_state = OperatorState.DOWNED
+			_stop_footsteps()
 		elif not val and current_state != OperatorState.ALIVE:
 			current_state = OperatorState.ALIVE
 
@@ -453,6 +464,24 @@ func _ready() -> void:
 	# Spawn permanent Drone at launch
 	call_deferred("spawn_drone")
 
+	# Cache the AudioManager autoload for SFX playback (no class_name by design).
+	_audio_manager = get_node_or_null(^"/root/AudioManager")
+
+	# Dedicated per-operator footstep voice (SFX bus). Death stops only this
+	# operator's steps; other operators/drone keep playing (Issue 2).
+	_footstep_player = AudioStreamPlayer.new()
+	_footstep_player.name = "FootstepSFX"
+	_footstep_player.bus = &"SFX"
+	_footstep_player.stream = FOOTSTEP_STREAM
+	add_child(_footstep_player)
+
+	# Bug 4: on window focus loss (alt-tab / task switch) Godot can retain the
+	# OS-level "key held" state, so a movement key like A stays logically pressed
+	# after the key is released. Flush the input buffer and cancel motion so no
+	# stale key can keep the operator moving.
+	if get_window() != null:
+		get_window().focus_exited.connect(_on_window_focus_lost)
+
 ## Builds the Weapon System Gen 1 from this operator's exported tuning values.
 ## All gameplay numbers are parametrized on the operator (scene-editable) and
 ## applied to the weapon through configure() — nothing is hardcoded.
@@ -529,8 +558,11 @@ func _physics_process(delta: float) -> void:
 			if mgr != null:
 				spawn_pos = mgr.get_respawn_position(team_id, player_id)
 			respawn(spawn_pos)
-		_apply_deceleration(delta)
-		move_and_slide()
+			return
+		# Frozen in place on death: no gravity, no movement. The collision shape is
+		# disabled (P1-6), so applying gravity/move_and_slide would drop the body
+		# through the floor. The corpse proxy (spawned in die()) is the visual.
+		velocity = Vector3.ZERO
 		return
 
 	if is_invulnerable:
@@ -844,6 +876,11 @@ func _execute_tactical_shot() -> void:
 		_burst_pending_shots = 0
 		return
 
+	# SFX: rifle gunshot on every resolved shot (fire-and-forget, SFX bus).
+	# Uses the existing AudioManager pool; no new audio system, no bus change.
+	if _audio_manager != null:
+		_audio_manager.play_sfx(GUNSHOT_STREAM)
+
 	# During an active burst, rounds are spaced by the burst interval so the
 	# magazine drains in a rhythmic TA-TA-TA; otherwise the base fire rate.
 	_fire_cooldown = _get_burst_interval() if _burst_pending_shots > 0 else _get_fire_rate()
@@ -968,16 +1005,61 @@ func _process_locomotion(input_vec: Vector2, delta: float) -> void:
 		
 		velocity.x = move_toward(velocity.x, target_dir.x * eff_speed, acceleration * delta)
 		velocity.z = move_toward(velocity.z, target_dir.z * eff_speed, acceleration * delta)
-		
+
+		# Footstep SFX cadence (only while actually moving on the ground).
+		if is_on_floor():
+			if not _was_moving:
+				_footstep_timer = _footstep_interval()
+				_was_moving = true
+			_tick_footsteps(delta)
+		else:
+			_stop_footsteps()
+
 		# Movement-direction aim only when no explicit aim source is active
 		if _aim_source == AimSource.MOVEMENT:
 			aim_yaw = atan2(-target_dir.x, -target_dir.z)
 	else:
 		_apply_deceleration(delta)
+		_stop_footsteps()
 
 	# Body rotation always converges to the canonical aim direction
 	rotation.y = lerp_angle(rotation.y, aim_yaw, eff_rot_speed * delta)
 	_sync_aim_direction()
+
+## Dedicated per-operator footstep voice (SFX bus). Owned by this operator so a
+## death stops ONLY this operator's steps — other operators (and the drone) keep
+## theirs. Created in _ready. Replaces the previous shared-pool one-shot whose
+## stop path (stop_all_sfx) globally muted every voice.
+var _footstep_player: AudioStreamPlayer = null
+
+## Persistent corpse proxies spawned on death (kept for the whole match).
+var _corpses: Array[Node3D] = []
+
+## ── SFX wiring (Gameplay SFX V1) ──────────────────────────────────────────────
+## Footstep cadence. Throttled so a walking operator emits ~2-3 steps/sec and a
+## sprinter slightly faster; never fires per physics frame. Steps start only while
+## the operator is actually moving on the ground, and stop immediately when it is
+## idle/airborne (no pending step, no long tail). dash/landing/death/damage are
+## PENDING: no appropriate asset exists yet, so no call site is added for them.
+func _footstep_interval() -> float:
+	return 0.32 if is_sprinting else (0.55 if is_crouching else 0.45)
+
+func _tick_footsteps(delta: float) -> void:
+	if current_state != OperatorState.ALIVE:
+		return
+	_footstep_timer -= delta
+	if _footstep_timer > 0.0:
+		return
+	_footstep_timer = _footstep_interval()
+	if _footstep_player != null:
+		_footstep_player.play()
+
+## Stops ONLY this operator's footstep voice — never other operators or the drone.
+func _stop_footsteps() -> void:
+	if _footstep_player != null:
+		_footstep_player.stop()
+	_was_moving = false
+	_footstep_timer = 0.0
 
 ## Smoothly decelerates velocity to zero
 func _apply_deceleration(delta: float) -> void:
@@ -1327,14 +1409,14 @@ func _acquire_autoaim_target() -> void:
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		if node is OperatorBase and not node.is_queued_for_deletion():
 			var op: OperatorBase = node as OperatorBase
-			if op != self and op.team_id != team_id and not op.is_incapacitated:
+			if op != self and op.team_id != team_id and not op.is_incapacitated and _is_target_detected_by_squad(op):
 				var score: float = _autoaim_score(op)
 				if score < INF and (not cone_gated or _target_within_vision_cone(op)):
 					candidates.append({"score": score, "target": op})
 	for node: Node in get_tree().get_nodes_in_group("drones"):
 		if node is DroneBase and not node.is_queued_for_deletion():
 			var drone: DroneBase = node as DroneBase
-			if drone.operator != null and drone.operator != self and drone.operator.team_id != team_id:
+			if drone.operator != null and drone.operator != self and drone.operator.team_id != team_id and _is_target_detected_by_squad(drone):
 				var drone_score: float = _autoaim_score(drone)
 				if drone_score < INF and (not cone_gated or _target_within_vision_cone(drone)):
 					candidates.append({"score": drone_score, "target": drone})
@@ -1374,6 +1456,23 @@ func _release_autoaim_target() -> void:
 				target_op.operator_incapacitated.disconnect(_on_autoaim_target_down)
 	_autoaim_target = null
 
+## True when `target` is currently detected by this operator's squad vision
+## union (the same source that drives Fog-of-War enemy visibility). Kept separate
+## from LoS/cone checks so targeting stays logically consistent with what the
+## squad can see (Bug 2): out-of-vision enemies are never targetable.
+func _is_target_detected_by_squad(target: Node3D) -> bool:
+	if target == null or not is_instance_valid(target):
+		return false
+	var registry_nodes: Array[Node] = get_tree().get_nodes_in_group("squad_vision_registry")
+	if registry_nodes.is_empty():
+		# No registry present (isolated harness / pre-match setup): fall back to
+		# the legacy cone+LoS acquisition so targeting still works there.
+		return true
+	var reg: SquadVisionRegistry = registry_nodes[0] as SquadVisionRegistry
+	if reg == null:
+		return true
+	return reg.is_entity_detected_by_team(target, team_id)
+
 ## Called when the locked drone is destroyed.
 func _on_autoaim_target_destroyed() -> void:
 	# AI-controlled operators keep _aim_source forced to AI by _update_aim(), so
@@ -1401,6 +1500,11 @@ func _is_valid_autoaim_target(target: Node3D) -> bool:
 		var drone: DroneBase = target as DroneBase
 		is_enemy = drone.operator != null and drone.operator.team_id != team_id
 	if not is_enemy:
+		return false
+	# Bug 2: an enemy is only targetable while the squad can actually see it. This
+	# uses the SAME detection union that drives Fog-of-War enemy visibility, so a
+	# target hidden from every friendly vision source is never lockable.
+	if not _is_target_detected_by_squad(target):
 		return false
 	if global_position.distance_to(target.global_position) > _get_combat_range():
 		return false
@@ -1619,13 +1723,38 @@ func _spawn_damage_particles(hit_pos: Vector3 = Vector3.ZERO) -> void:
 		get_tree().create_timer(1.0).timeout.connect(particles.queue_free)
 
 ## Triggers death state and starts respawn timer
+## Bug 4: window focus-loss handler. Flushes any retained OS key state and stops
+## motion so a key released while unfocused can't keep the operator moving.
+func _on_window_focus_lost() -> void:
+	# Use a runtime call (not a static reference) so the build stays compatible
+	# across Godot versions that may not expose this flush method.
+	if Input.has_method("flush_buffered_events"):
+		Input.call("flush_buffered_events")
+	velocity = Vector3.ZERO
+
 func die() -> void:
 	if current_state == OperatorState.DEAD:
 		return
 	current_state = OperatorState.DEAD
+	_stop_footsteps()
 	velocity = Vector3.ZERO
 	is_dashing = false
+	# Drop stale input edges so the operator can't resume a held crouch/dash/fire
+	# state after it returns to life (Bug 4 — transition safety).
+	_crouch_prev_pressed = false
+	_sprint_prev_pressed = false
+	_fire_input_prev = false
 	_burst_pending_shots = 0
+	# Remove the body from collision so it cannot block living operators (P1-6),
+	# and stop its vision cone scanning (P0-1 secondary — the registry also skips
+	# incapacitated owners every recalc).
+	if _collision_shape != null:
+		_collision_shape.disabled = true
+	if vision_cone != null:
+		vision_cone.set_physics_process(false)
+	# Drop a persistent, non-collidable corpse proxy at the death location so the
+	# battlefield reads as a fallen operator instead of an empty void (Issue 1).
+	_spawn_corpse()
 	operator_incapacitated.emit(player_id)
 
 	# Cancel any active reload while down.
@@ -1668,6 +1797,22 @@ func respawn(spawn_pos: Vector3 = Vector3.ZERO) -> void:
 	if spawn_pos != Vector3.ZERO:
 		global_position = spawn_pos
 
+	# Reset stance/sprint so the operator reappears standing (P1-7), and restore
+	# the body collision + vision-cone scanning disabled on death (P1-6 / P0-1).
+	is_crouching = false
+	is_sprinting = false
+	is_dashing = false
+	velocity = Vector3.ZERO
+	# Clear stale input edges carried from before death (Bug 4 — transition safety).
+	_crouch_prev_pressed = false
+	_sprint_prev_pressed = false
+	_fire_input_prev = false
+	if _collision_shape != null:
+		_collision_shape.disabled = false
+	if vision_cone != null:
+		vision_cone.set_physics_process(true)
+	_update_crouch_visual()
+
 	health_current = health_max
 	health_changed.emit(health_current, health_max)
 
@@ -1701,6 +1846,27 @@ func respawn(spawn_pos: Vector3 = Vector3.ZERO) -> void:
 		spawn_drone()
 
 	_update_overhead_badge()
+
+## Spawns a static, non-collidable corpse/body proxy at the death location.
+## Purely visual: no VisionCone3D, no collision shape, not a camera target, so it
+## contributes nothing to vision/detection/framing and never interferes with play.
+## Corpses persist for the rest of the match (no recovery mechanic yet — Issue 1).
+func _spawn_corpse() -> void:
+	if _mesh_instance == null or _mesh_instance.mesh == null:
+		return
+	var corpse: MeshInstance3D = MeshInstance3D.new()
+	corpse.name = "Corpse"
+	corpse.mesh = _mesh_instance.mesh
+	if _mesh_instance.material_override != null:
+		corpse.material_override = _mesh_instance.material_override
+	# Ground the collapsed body where the operator died (laid flat, slight lift so
+	# it rests on the floor rather than clipping through it).
+	corpse.global_position = Vector3(global_position.x, 0.3, global_position.z)
+	corpse.rotation = Vector3(PI * 0.5, rotation.y, 0.0)
+	var parent: Node = get_parent()
+	if parent != null and is_instance_valid(parent):
+		parent.add_child(corpse)
+		_corpses.append(corpse)
 
 ## Helper to locate PlayerManager instance
 func _find_player_manager() -> PlayerManager:

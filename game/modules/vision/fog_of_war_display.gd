@@ -25,9 +25,9 @@ extends Node3D
 const REBUILD_INTERVAL: float = 0.1
 
 ## Fraction of the owning operator's view range that a deployed drone reveals in
-## the ground Fog of War (~1/4: operator 16m -> drone ~4m). This is presentation
+## the ground Fog of War (~1/2: operator 16m -> drone ~8m). This is presentation
 ## only: the drone's own VisionCone3D (enemy detection) is left untouched.
-const DRONE_REVEAL_FRACTION: float = 0.25
+const DRONE_REVEAL_FRACTION: float = 0.50
 
 ## Shader applied to the fog overlay plane.
 const FOG_SHADER: Shader = preload("res://modules/vision/fog_of_war.gdshader")
@@ -129,6 +129,10 @@ func _physics_process(delta: float) -> void:
 	_frame_visible.fill(0)
 	for op: OperatorBase in player_manager.get_all_operators():
 		if op == null or op.is_ai_controlled:
+			continue
+		# A dead/downed operator stops revealing live ground fog, but its already
+		# explored memory is preserved (monotonic OR in _accumulated_explored).
+		if op.is_incapacitated:
 			continue
 		_feed_circle(op.player_id, op.global_position, op.reveal_radius)
 		if not active_ids.has(op.player_id):

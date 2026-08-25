@@ -20,6 +20,14 @@ func _check(cond: bool, label: String) -> void:
 		_fail_count += 1
 		print("  [FAIL] ", label)
 
+## Stub InputManager holding ONLY the pilot aim-cone action. Repair: since
+## commit daa42ff the visible cone is aim-gated (_pilot_cone.visible =
+## is_aiming), so PILOT-mode visibility requires an active aim input.
+class HeldAimInput:
+	extends InputManager
+	func is_action_pressed(_player_id: int, suffix: String) -> bool:
+		return suffix == "aim_cone"
+
 func run_test() -> void:
 	print("== DRONE PILOT VISION CONE TEST ==")
 	var root: Node3D = Node3D.new()
@@ -30,6 +38,7 @@ func run_test() -> void:
 	op.team_id = OperatorBase.TEAM_ATTACKERS
 	op.position = Vector3(-4.0, 0.0, 0.0)
 	root.add_child(op)
+	op.set_input_manager(HeldAimInput.new())
 
 	var drone: DroneBase = preload("res://scenes/drone.tscn").instantiate() as DroneBase
 	drone.operator = op

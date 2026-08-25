@@ -23,5 +23,5 @@ mesh = SubResource("SphereMesh_drone")
 
 [node name="VisionCone3D" type="Node3D" parent="."]
 script = ExtResource("2_vision_script")
-view_range = 14.0
+view_range = 24.0
 field_of_view_degrees = 90.0

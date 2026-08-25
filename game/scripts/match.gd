@@ -268,6 +268,13 @@ func _start_loading() -> void:
 	_phase = Phase.LOADING
 	phase_changed.emit(_phase)
 
+	# Freeze all operators for the entire pre-match (LOADING + COUNTDOWN), not
+	# just the countdown. Capture each operator's real AI flag FIRST so control
+	# is restored correctly at GO (P1-4).
+	for op: OperatorBase in player_manager.get_all_operators():
+		_op_ai_by_id[op.player_id] = op.is_ai_controlled
+		op.is_ai_controlled = true
+
 	# Operators stay visible and the shared gameplay camera is already live.
 	if camera_controller != null and camera_controller.camera != null:
 		camera_controller.camera.current = true
@@ -285,7 +292,7 @@ func _start_intro() -> void:
 	# Freeze all operators until GO (Part 3, step 8). They stay VISIBLE: no
 	# cinematic reveal needed, the shared camera already frames the squad.
 	for op: OperatorBase in player_manager.get_all_operators():
-		_op_ai_by_id[op.player_id] = op.is_ai_controlled
+		# AI flags were already captured (and operators frozen) in _start_loading.
 		op.is_ai_controlled = true
 
 	_intro_step = IntroStep.COUNTDOWN
@@ -319,8 +326,32 @@ func end_match(winning_team: int) -> void:
 			op.velocity = Vector3.ZERO
 
 	match_ended.emit(winning_team)
+	_play_result_music(winning_team)
 	print("[Match] Match ended. Winner: %s" % _team_name(winning_team))
 	_show_match_end_overlay(winning_team)
+
+## Plays the appropriate result music (VICTORY/DEFEAT/DRAW) when the match ends.
+## Victory/Defeat is relative to the human-controlled operator's team; a draw
+## (winning_team < 0) or an all-AI match falls back to DRAW. Reuses the existing
+## MusicController (no new audio system). INTRO/COMBAT paths are untouched.
+func _play_result_music(winning_team: int) -> void:
+	var music: Node = get_tree().root.get_node_or_null("MusicController")
+	if music == null:
+		return
+	var human_team: int = -1
+	if player_manager != null:
+		for op: OperatorBase in player_manager.get_all_operators():
+			if not op.is_ai_controlled:
+				human_team = op.team_id
+				break
+	var state: int = MusicController.State.DRAW
+	if human_team >= 0:
+		state = MusicController.State.VICTORY if winning_team == human_team else MusicController.State.DEFEAT
+	elif winning_team < 0:
+		state = MusicController.State.DRAW
+	else:
+		state = MusicController.State.VICTORY
+	music.set_state(state, 1.5)
 
 func _team_name(team_id: int) -> String:
 	return "ATACANTES (Equipo 0)" if team_id == OperatorBase.TEAM_ATTACKERS else "DEFENSORES (Equipo 1)"
@@ -390,8 +421,9 @@ func _restore_control() -> void:
 	if player_manager == null:
 		return
 	for op: OperatorBase in player_manager.get_all_operators():
-		if _op_ai_by_id.has(op.player_id):
-			op.is_ai_controlled = bool(_op_ai_by_id[op.player_id])
+		# Default to human control when this operator's AI flag wasn't captured at
+		# intro, so a missing entry can never permanently freeze the operator (Bug 4).
+		op.is_ai_controlled = bool(_op_ai_by_id.get(op.player_id, false))
 
 func _create_intro_ui() -> void:
 	_intro_ui = CanvasLayer.new()
@@ -681,7 +713,7 @@ var _paused: bool = false
 var _pause_overlay: CanvasLayer = null
 
 func _toggle_pause() -> void:
-	if _phase == Phase.LOADING:
+	if _phase == Phase.LOADING or _phase == Phase.MATCH_END:
 		return
 	if _paused:
 		_resume_game()
@@ -740,6 +772,10 @@ func _on_player_spawned(_p_id: int, op: OperatorBase) -> void:
 	op.weapon_fired.connect(_on_weapon_fired.bind(op))
 	op.damage_dealt.connect(_on_operator_damage_dealt)
 	op.drone_status_changed.connect(_on_drone_status_changed)
+	if not op.operator_incapacitated.is_connected(_on_operator_incapacitated):
+		op.operator_incapacitated.connect(_on_operator_incapacitated.bind(op))
+	if op.drone != null:
+		_on_drone_status_changed(_p_id, true, "ESCORT")
 	_update_camera_targets()
 
 func _on_drone_status_changed(p_id: int, has_drone: bool, _mode: String) -> void:
@@ -762,6 +798,14 @@ func _on_drone_status_changed(p_id: int, has_drone: bool, _mode: String) -> void
 
 func _on_squad_updated(_active_count: int) -> void:
 	_update_camera_targets()
+
+## Re-frames the camera and refreshes squad detection when an operator goes
+## down/respawns (P0-1 / P1-3). The camera excludes incapacitated operators on
+## its own each frame; this just triggers an immediate refresh.
+func _on_operator_incapacitated(_p_id: int, op: OperatorBase) -> void:
+	_update_camera_targets()
+	if squad_vision_registry != null:
+		squad_vision_registry._recalculate_squad_vision()
 
 func _update_camera_targets() -> void:
 	if camera_controller == null or player_manager == null:
